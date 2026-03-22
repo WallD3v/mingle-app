@@ -9,9 +9,9 @@ import androidx.compose.foundation.clickable
 import androidx.compose.foundation.layout.fillMaxSize
 import androidx.compose.foundation.layout.fillMaxWidth
 import androidx.compose.foundation.layout.height
+import androidx.compose.foundation.layout.width
 import androidx.compose.foundation.layout.padding
 import androidx.compose.foundation.layout.size
-import androidx.compose.foundation.layout.width
 import androidx.compose.foundation.lazy.LazyColumn
 import androidx.compose.foundation.lazy.items
 import androidx.compose.foundation.rememberScrollState
@@ -36,6 +36,7 @@ import androidx.compose.material3.Text
 import androidx.compose.material3.darkColorScheme
 import androidx.compose.material3.lightColorScheme
 import androidx.compose.runtime.Composable
+import androidx.compose.runtime.DisposableEffect
 import androidx.compose.runtime.LaunchedEffect
 import androidx.compose.runtime.getValue
 import androidx.compose.runtime.mutableStateListOf
@@ -66,6 +67,8 @@ import androidx.compose.material3.TextButton
 import androidx.compose.ui.window.Popup
 import com.mingle.app.data.repository.AuthRepository
 import com.mingle.app.data.repository.AuthResult
+import com.mingle.app.data.repository.DialogListItemModel
+import com.mingle.app.data.repository.DialogMessageModel
 import com.mingle.app.data.repository.UserSearchModel
 import com.mingle.app.data.storage.SecureSessionStore
 import com.mingle.app.data.tcp.TcpAuthClient
@@ -397,12 +400,55 @@ private fun MnemonicAuthScreen(
 private fun HomeScreen(repository: AuthRepository) {
     var selectedTab by remember { mutableStateOf(HomeTab.CHATS) }
     var openedChatUser by remember { mutableStateOf<UserSearchModel?>(null) }
+    var openedChatMessages by remember { mutableStateOf<List<DialogMessageModel>>(emptyList()) }
+    var isChatLoading by rememberSaveable { mutableStateOf(false) }
+    var isMessageSending by rememberSaveable { mutableStateOf(false) }
+    var chatError by rememberSaveable { mutableStateOf<String?>(null) }
+
     var isSearchOpen by rememberSaveable { mutableStateOf(false) }
     var searchQuery by rememberSaveable { mutableStateOf("") }
     var isSearching by rememberSaveable { mutableStateOf(false) }
     var searchError by rememberSaveable { mutableStateOf<String?>(null) }
     var searchResults by remember { mutableStateOf<List<UserSearchModel>>(emptyList()) }
+
+    var isDialogsLoading by rememberSaveable { mutableStateOf(false) }
+    var dialogsError by rememberSaveable { mutableStateOf<String?>(null) }
+    var dialogs by remember { mutableStateOf<List<DialogListItemModel>>(emptyList()) }
+    var dialogsReloadKey by rememberSaveable { mutableStateOf(0) }
+
+    val currentUserId = remember { repository.getCurrentUserId().orEmpty() }
+    val scope = rememberCoroutineScope()
     val palette = rememberHomePalette()
+
+    DisposableEffect(Unit) {
+        repository.setIncomingMessageListener { incoming ->
+            scope.launch {
+                val updatedItem = DialogListItemModel(
+                    dialogId = if (incoming.message.dialogId.isBlank()) "" else incoming.message.dialogId,
+                    peer = incoming.from,
+                    lastMessageText = incoming.message.text,
+                    lastMessageAtUnixMs = incoming.message.createdAtUnixMs
+                )
+
+                dialogs = buildList {
+                    add(updatedItem)
+                    addAll(dialogs.filterNot { it.peer.userId == incoming.from.userId })
+                }
+
+                if (openedChatUser?.userId == incoming.from.userId &&
+                    openedChatMessages.none { it.messageId == incoming.message.messageId }) {
+                    openedChatMessages = openedChatMessages + incoming.message
+                }
+            }
+        }
+        onDispose {
+            repository.setIncomingMessageListener(null)
+        }
+    }
+
+    LaunchedEffect(Unit) {
+        repository.subscribeRealtimeUpdates()
+    }
 
     LaunchedEffect(isSearchOpen, searchQuery) {
         if (!isSearchOpen) {
@@ -435,6 +481,45 @@ private fun HomeScreen(repository: AuthRepository) {
         isSearching = false
     }
 
+    LaunchedEffect(selectedTab, openedChatUser, isSearchOpen, dialogsReloadKey) {
+        if (selectedTab != HomeTab.CHATS || openedChatUser != null || isSearchOpen) {
+            return@LaunchedEffect
+        }
+
+        isDialogsLoading = true
+        when (val result = repository.getDialogs()) {
+            is com.mingle.app.data.repository.DialogListResult.Success -> {
+                dialogs = result.items
+                dialogsError = null
+            }
+            is com.mingle.app.data.repository.DialogListResult.Failure -> {
+                if (dialogs.isEmpty()) {
+                    dialogsError = result.message
+                }
+            }
+        }
+        isDialogsLoading = false
+    }
+
+    LaunchedEffect(openedChatUser?.userId) {
+        val user = openedChatUser ?: return@LaunchedEffect
+
+        isChatLoading = true
+        when (val result = repository.openDialog(user.userId)) {
+            is com.mingle.app.data.repository.DialogThreadResult.Success -> {
+                openedChatUser = result.thread.peer
+                openedChatMessages = result.thread.messages
+                chatError = null
+            }
+            is com.mingle.app.data.repository.DialogThreadResult.Failure -> {
+                if (openedChatMessages.isEmpty()) {
+                    chatError = result.message
+                }
+            }
+        }
+        isChatLoading = false
+    }
+
     Scaffold { padding ->
         Box(
             modifier = Modifier
@@ -447,9 +532,34 @@ private fun HomeScreen(repository: AuthRepository) {
                 when (selectedTab) {
                     HomeTab.CHATS -> {
                         if (openedChatUser != null) {
-                            ChatStubScreen(
+                            ChatScreen(
                                 palette = palette,
                                 user = openedChatUser!!,
+                                currentUserId = currentUserId,
+                                isLoading = isChatLoading,
+                                isSending = isMessageSending,
+                                errorMessage = chatError,
+                                messages = openedChatMessages,
+                                onSendMessage = { text ->
+                                    if (text.isBlank() || isMessageSending) {
+                                        return@ChatScreen
+                                    }
+
+                                    scope.launch {
+                                        isMessageSending = true
+                                        when (val result = repository.sendMessage(openedChatUser!!.userId, text)) {
+                                            is com.mingle.app.data.repository.SendMessageResult.Success -> {
+                                                openedChatMessages = openedChatMessages + result.message
+                                                chatError = null
+                                                dialogsReloadKey += 1
+                                            }
+                                            is com.mingle.app.data.repository.SendMessageResult.Failure -> {
+                                                chatError = result.message
+                                            }
+                                        }
+                                        isMessageSending = false
+                                    }
+                                },
                                 onBack = { openedChatUser = null }
                             )
                         } else {
@@ -472,8 +582,13 @@ private fun HomeScreen(repository: AuthRepository) {
                                 isSearching = isSearching,
                                 errorMessage = searchError,
                                 results = searchResults,
+                                dialogs = dialogs,
+                                dialogsError = dialogsError,
+                                isDialogsLoading = isDialogsLoading,
                                 onUserClick = { user ->
                                     openedChatUser = user
+                                    openedChatMessages = emptyList()
+                                    chatError = null
                                     isSearchOpen = false
                                     searchQuery = ""
                                 }
@@ -590,9 +705,99 @@ private fun EmptyChats(
     isSearching: Boolean,
     errorMessage: String?,
     results: List<UserSearchModel>,
+    dialogs: List<DialogListItemModel>,
+    dialogsError: String?,
+    isDialogsLoading: Boolean,
     onUserClick: (UserSearchModel) -> Unit
 ) {
-    if (!isSearchOpen || query.trim().isEmpty()) {
+    if (!isSearchOpen) {
+        if (isDialogsLoading) {
+            Box(
+                modifier = Modifier
+                    .fillMaxSize()
+                    .padding(bottom = 84.dp),
+                contentAlignment = Alignment.Center
+            ) {
+                CircularProgressIndicator()
+            }
+            return
+        }
+
+        dialogsError?.let {
+            Box(
+                modifier = Modifier
+                    .fillMaxSize()
+                    .padding(bottom = 84.dp),
+                contentAlignment = Alignment.Center
+            ) {
+                Text(
+                    text = it,
+                    color = MaterialTheme.colorScheme.error,
+                    style = MaterialTheme.typography.bodyMedium
+                )
+            }
+            return
+        }
+
+        if (dialogs.isEmpty()) {
+            Box(
+                modifier = Modifier
+                    .fillMaxSize()
+                    .padding(bottom = 84.dp),
+                contentAlignment = Alignment.Center
+            ) {
+                Text(
+                    text = "Чатов пока нет",
+                    color = palette.secondaryText,
+                    style = MaterialTheme.typography.bodyLarge
+                )
+            }
+            return
+        }
+
+        LazyColumn(
+            modifier = Modifier
+                .fillMaxSize()
+                .padding(bottom = 84.dp),
+            verticalArrangement = Arrangement.spacedBy(8.dp)
+        ) {
+            items(dialogs) { dialog ->
+                Row(
+                    modifier = Modifier
+                        .fillMaxWidth()
+                        .clip(RoundedCornerShape(12.dp))
+                        .background(palette.panelBackground)
+                        .clickable { onUserClick(dialog.peer) }
+                        .padding(horizontal = 12.dp, vertical = 10.dp),
+                    verticalAlignment = Alignment.CenterVertically
+                ) {
+                    Box(
+                        modifier = Modifier
+                            .size(38.dp)
+                            .clip(CircleShape)
+                            .background(palette.chipBackground)
+                    )
+                    Spacer(modifier = Modifier.size(10.dp))
+                    Column {
+                        Text(
+                            text = dialog.peer.displayName,
+                            color = palette.primaryText,
+                            style = MaterialTheme.typography.bodyLarge,
+                            fontWeight = FontWeight.Medium
+                        )
+                        Text(
+                            text = dialog.lastMessageText,
+                            color = palette.secondaryText,
+                            style = MaterialTheme.typography.bodySmall
+                        )
+                    }
+                }
+            }
+        }
+        return
+    }
+
+    if (query.trim().isEmpty()) {
         Box(
             modifier = Modifier
                 .fillMaxSize()
@@ -600,7 +805,7 @@ private fun EmptyChats(
             contentAlignment = Alignment.Center
         ) {
             Text(
-                text = "Чатов пока нет",
+                text = "Введите username для поиска",
                 color = palette.secondaryText,
                 style = MaterialTheme.typography.bodyLarge
             )
@@ -694,65 +899,154 @@ private fun EmptyChats(
 }
 
 @Composable
-private fun ChatStubScreen(
+private fun ChatScreen(
     palette: HomePalette,
     user: UserSearchModel,
+    currentUserId: String,
+    isLoading: Boolean,
+    isSending: Boolean,
+    errorMessage: String?,
+    messages: List<DialogMessageModel>,
+    onSendMessage: (String) -> Unit,
     onBack: () -> Unit
 ) {
-    Row(
-        modifier = Modifier
-            .fillMaxWidth()
-            .clip(RoundedCornerShape(14.dp))
-            .background(palette.panelBackground)
-            .padding(horizontal = 12.dp, vertical = 10.dp),
-        verticalAlignment = Alignment.CenterVertically
-    ) {
-        IconButton(
-            onClick = onBack,
+    var draftMessage by rememberSaveable(user.userId) { mutableStateOf("") }
+
+    Column(modifier = Modifier.fillMaxSize()) {
+        Row(
             modifier = Modifier
-                .size(width = 44.dp, height = 30.dp)
-                .clip(RoundedCornerShape(8.dp))
-                .background(palette.chipBackground)
+                .fillMaxWidth()
+                .clip(RoundedCornerShape(14.dp))
+                .background(palette.panelBackground)
+                .padding(horizontal = 12.dp, vertical = 10.dp),
+            verticalAlignment = Alignment.CenterVertically
         ) {
-            Icon(
-                imageVector = Icons.Filled.ArrowBack,
-                contentDescription = "Back to chats",
-                tint = palette.primaryText,
-                modifier = Modifier.size(18.dp)
-            )
+            IconButton(
+                onClick = onBack,
+                modifier = Modifier
+                    .size(width = 44.dp, height = 30.dp)
+                    .clip(RoundedCornerShape(8.dp))
+                    .background(palette.chipBackground)
+            ) {
+                Icon(
+                    imageVector = Icons.Filled.ArrowBack,
+                    contentDescription = "Back to chats",
+                    tint = palette.primaryText,
+                    modifier = Modifier.size(18.dp)
+                )
+            }
+            Spacer(modifier = Modifier.width(10.dp))
+            Column {
+                Text(
+                    text = user.displayName,
+                    color = palette.primaryText,
+                    style = MaterialTheme.typography.titleMedium,
+                    fontWeight = FontWeight.Medium
+                )
+                Text(
+                    text = "@${user.username}",
+                    color = palette.secondaryText,
+                    style = MaterialTheme.typography.bodySmall
+                )
+            }
         }
-        Spacer(modifier = Modifier.width(10.dp))
-        Column {
+
+        Spacer(modifier = Modifier.height(10.dp))
+
+        Box(
+            modifier = Modifier
+                .weight(1f)
+                .fillMaxWidth(),
+            contentAlignment = Alignment.Center
+        ) {
+            when {
+                isLoading -> CircularProgressIndicator()
+                messages.isEmpty() -> Text(
+                    text = "Диалог начнется после первого сообщения",
+                    color = palette.secondaryText,
+                    style = MaterialTheme.typography.bodyLarge
+                )
+                else -> {
+                    LazyColumn(
+                        modifier = Modifier.fillMaxSize(),
+                        verticalArrangement = Arrangement.spacedBy(6.dp)
+                    ) {
+                        items(messages) { message ->
+                            val outgoing = message.senderUserId == currentUserId
+                            Row(
+                                modifier = Modifier.fillMaxWidth(),
+                                horizontalArrangement = if (outgoing) Arrangement.End else Arrangement.Start
+                            ) {
+                                Box(
+                                    modifier = Modifier
+                                        .clip(RoundedCornerShape(12.dp))
+                                        .background(if (outgoing) palette.selectedTabBackground else palette.panelBackground)
+                                        .padding(horizontal = 10.dp, vertical = 8.dp)
+                                ) {
+                                    Text(
+                                        text = message.text,
+                                        color = palette.primaryText,
+                                        style = MaterialTheme.typography.bodyMedium
+                                    )
+                                }
+                            }
+                        }
+                    }
+                }
+            }
+        }
+
+        errorMessage?.let {
+            Spacer(modifier = Modifier.height(6.dp))
             Text(
-                text = user.displayName,
-                color = palette.primaryText,
-                style = MaterialTheme.typography.titleMedium,
-                fontWeight = FontWeight.Medium
-            )
-            Text(
-                text = "@${user.username}",
-                color = palette.secondaryText,
+                text = it,
+                color = MaterialTheme.colorScheme.error,
                 style = MaterialTheme.typography.bodySmall
             )
         }
-    }
 
-    Spacer(modifier = Modifier.height(10.dp))
+        Spacer(modifier = Modifier.height(8.dp))
 
-    Box(
-        modifier = Modifier
-            .fillMaxSize()
-            .padding(bottom = 12.dp),
-        contentAlignment = Alignment.Center
-    ) {
-        Text(
-            text = "Диалог с @${user.username} в разработке",
-            color = palette.secondaryText,
-            style = MaterialTheme.typography.bodyLarge
-        )
+        Row(
+            modifier = Modifier.fillMaxWidth(),
+            verticalAlignment = Alignment.CenterVertically,
+            horizontalArrangement = Arrangement.spacedBy(8.dp)
+        ) {
+            TextField(
+                value = draftMessage,
+                onValueChange = { draftMessage = it },
+                modifier = Modifier.weight(1f),
+                singleLine = true,
+                label = { Text("Сообщение") },
+                colors = TextFieldDefaults.colors(
+                    focusedContainerColor = palette.panelBackground,
+                    unfocusedContainerColor = palette.panelBackground,
+                    disabledContainerColor = palette.panelBackground,
+                    errorContainerColor = palette.panelBackground,
+                    focusedIndicatorColor = Color.Transparent,
+                    unfocusedIndicatorColor = Color.Transparent,
+                    disabledIndicatorColor = Color.Transparent,
+                    errorIndicatorColor = Color.Transparent
+                )
+            )
+
+            Button(
+                onClick = {
+                    onSendMessage(draftMessage)
+                    draftMessage = ""
+                },
+                enabled = draftMessage.isNotBlank() && !isSending,
+                colors = ButtonDefaults.buttonColors(containerColor = palette.chipBackground),
+                shape = RoundedCornerShape(8.dp)
+            ) {
+                Text(
+                    text = if (isSending) "..." else "Send",
+                    color = palette.primaryText
+                )
+            }
+        }
     }
 }
-
 @Composable
 private fun ProfileScreen(palette: HomePalette, repository: AuthRepository) {
     val scope = rememberCoroutineScope()

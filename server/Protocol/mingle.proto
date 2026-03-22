@@ -64,6 +64,71 @@ message UserSearchResults {
   repeated UserSearchResultItem items = 1;
 }
 
+message DialogsListRequest {
+  string token = 1;
+}
+
+message DialogOpenRequest {
+  string token = 1;
+  string peer_user_id = 2;
+}
+
+message MessageSendRequest {
+  string token = 1;
+  string peer_user_id = 2;
+  string text = 3;
+}
+
+message UserPreview {
+  string user_id = 1;
+  string display_name = 2;
+  string username = 3;
+  int64 last_seen_at_unix_ms = 4;
+}
+
+message DialogMessage {
+  string message_id = 1;
+  string dialog_id = 2;
+  string sender_user_id = 3;
+  string text = 4;
+  int64 created_at_unix_ms = 5;
+}
+
+message DialogListItem {
+  string dialog_id = 1;
+  UserPreview peer = 2;
+  string last_message_text = 3;
+  int64 last_message_at_unix_ms = 4;
+}
+
+message DialogsData {
+  repeated DialogListItem items = 1;
+}
+
+message DialogData {
+  string dialog_id = 1;
+  UserPreview peer = 2;
+  repeated DialogMessage messages = 3;
+}
+
+message MessageSent {
+  DialogMessage message = 1;
+  UserPreview peer = 2;
+}
+
+message SubscribeUpdatesRequest {
+  string token = 1;
+}
+
+message Subscribed {
+  string user_id = 1;
+}
+
+message MessageReceived {
+  DialogMessage message = 1;
+  UserPreview from = 2;
+}
+
 message ClientMessage {
   uint32 protocol_version = 1;
   oneof payload {
@@ -74,6 +139,10 @@ message ClientMessage {
     ProfileGetRequest profile_get = 6;
     ProfileUpdateRequest profile_update = 7;
     UserSearchRequest user_search = 8;
+    DialogsListRequest dialogs_list = 9;
+    DialogOpenRequest dialog_open = 10;
+    MessageSendRequest message_send = 11;
+    SubscribeUpdatesRequest subscribe_updates = 12;
   }
 }
 
@@ -87,5 +156,10 @@ message ServerMessage {
     ProfileData profile_data = 6;
     ProfileData profile_updated = 7;
     UserSearchResults user_search_results = 8;
+    DialogsData dialogs_data = 9;
+    DialogData dialog_data = 10;
+    MessageSent message_sent = 11;
+    Subscribed subscribed = 12;
+    MessageReceived message_received = 13;
   }
 }

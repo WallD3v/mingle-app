@@ -22,7 +22,9 @@ builder.Services.AddSingleton<MnemonicService>();
 builder.Services.AddSingleton<JwtTokenService>();
 builder.Services.AddSingleton<JwtValidationService>();
 builder.Services.AddSingleton<TcpMessageProcessor>();
+builder.Services.AddSingleton<IRealtimeConnectionRegistry, RealtimeConnectionRegistry>();
 builder.Services.AddSingleton<IUserRepository, UserRepository>();
+builder.Services.AddSingleton<IDialogRepository, DialogRepository>();
 builder.Services.AddSingleton<AuthService>();
 
 builder.Services.AddHostedService<TcpServerHostedService>();

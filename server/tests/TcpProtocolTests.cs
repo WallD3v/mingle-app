@@ -210,15 +210,74 @@ public sealed class TcpProtocolTests
         Assert.Equal("searchme1", search.UserSearchResults.Items[0].Username);
     }
 
+    [Fact]
+    public async Task Processor_DialogCreatedOnlyAfterFirstMessage()
+    {
+        var processor = BuildProcessor();
+        var secondMnemonic = "abandon abandon abandon abandon abandon abandon abandon abandon abandon abandon abandon abandon abandon abandon abandon abandon abandon abandon abandon abandon abandon abandon ability able";
+
+        var first = await processor.ProcessAsync(new ClientMessage
+        {
+            ProtocolVersion = 1,
+            Register = new AuthRequest { Mnemonic = ValidMnemonic }
+        });
+
+        var second = await processor.ProcessAsync(new ClientMessage
+        {
+            ProtocolVersion = 1,
+            Register = new AuthRequest { Mnemonic = secondMnemonic }
+        });
+
+        var openBeforeMessage = await processor.ProcessAsync(new ClientMessage
+        {
+            ProtocolVersion = 1,
+            DialogOpen = new DialogOpenRequest
+            {
+                Token = first.AuthSuccess!.AccessToken,
+                PeerUserId = second.AuthSuccess!.UserId
+            }
+        });
+        Assert.NotNull(openBeforeMessage.DialogData);
+        Assert.Equal(string.Empty, openBeforeMessage.DialogData!.DialogId);
+        Assert.Empty(openBeforeMessage.DialogData.Messages);
+
+        var send = await processor.ProcessAsync(new ClientMessage
+        {
+            ProtocolVersion = 1,
+            MessageSend = new MessageSendRequest
+            {
+                Token = first.AuthSuccess.AccessToken,
+                PeerUserId = second.AuthSuccess.UserId,
+                Text = "hello"
+            }
+        });
+        Assert.NotNull(send.MessageSent);
+
+        var openAfterMessage = await processor.ProcessAsync(new ClientMessage
+        {
+            ProtocolVersion = 1,
+            DialogOpen = new DialogOpenRequest
+            {
+                Token = first.AuthSuccess.AccessToken,
+                PeerUserId = second.AuthSuccess.UserId
+            }
+        });
+        Assert.NotNull(openAfterMessage.DialogData);
+        Assert.NotEqual(string.Empty, openAfterMessage.DialogData!.DialogId);
+        Assert.Single(openAfterMessage.DialogData.Messages);
+    }
+
     private static TcpMessageProcessor BuildProcessor()
     {
         var mnemonicService = new MnemonicService();
         var repo = new InMemoryUserRepository();
+        var dialogRepo = new InMemoryDialogRepository(repo);
+        var realtimeRegistry = new RealtimeConnectionRegistry();
         var jwtOptions = new AppJwtOptions(TestJwtSecret, "issuer", "aud", 30);
         var jwtTokenService = new JwtTokenService(jwtOptions);
         var authService = new AuthService(mnemonicService, repo, jwtTokenService);
         var validationService = new JwtValidationService(jwtOptions);
-        return new TcpMessageProcessor(authService, validationService, repo, NullLogger<TcpMessageProcessor>.Instance);
+        return new TcpMessageProcessor(authService, validationService, repo, dialogRepo, realtimeRegistry, NullLogger<TcpMessageProcessor>.Instance);
     }
 
     private sealed class InMemoryUserRepository : IUserRepository
@@ -301,6 +360,112 @@ public sealed class TcpProtocolTests
                 .ToList();
 
             return Task.FromResult<IReadOnlyList<UserRecord>>(results);
+        }
+    }
+
+    private sealed class InMemoryDialogRepository(InMemoryUserRepository userRepository) : IDialogRepository
+    {
+        private readonly Dictionary<string, Guid> _dialogIds = new();
+        private readonly Dictionary<Guid, List<DialogMessageRecord>> _messages = new();
+
+        public Task<IReadOnlyList<DialogListItemRecord>> GetDialogsAsync(Guid userId, int limit)
+        {
+            var items = _dialogIds
+                .Where(pair => pair.Key.Contains(userId.ToString(), StringComparison.Ordinal))
+                .Select(pair =>
+                {
+                    var parts = pair.Key.Split('|');
+                    var peerId = Guid.Parse(parts[0]) == userId ? Guid.Parse(parts[1]) : Guid.Parse(parts[0]);
+                    var peer = userRepository.GetByUserIdAsync(peerId).Result!;
+                    var last = _messages.TryGetValue(pair.Value, out var list) ? list.LastOrDefault() : null;
+                    if (peer is null || last is null)
+                    {
+                        return null;
+                    }
+
+                    return new DialogListItemRecord
+                    {
+                        DialogId = pair.Value,
+                        PeerUserId = peer.Id,
+                        PeerDisplayName = peer.DisplayName,
+                        PeerUsername = peer.Username,
+                        PeerLastSeenAt = peer.LastSeenAt,
+                        LastMessageText = last.Text,
+                        LastMessageAt = last.CreatedAt
+                    };
+                })
+                .Where(x => x is not null)
+                .Cast<DialogListItemRecord>()
+                .OrderByDescending(x => x.LastMessageAt)
+                .Take(Math.Clamp(limit, 1, 100))
+                .ToList();
+
+            return Task.FromResult<IReadOnlyList<DialogListItemRecord>>(items);
+        }
+
+        public async Task<DialogThreadRecord?> GetDialogAsync(Guid userId, Guid peerUserId, int limit)
+        {
+            var peer = await userRepository.GetByUserIdAsync(peerUserId);
+            if (peer is null)
+            {
+                return null;
+            }
+
+            var key = BuildKey(userId, peerUserId);
+            _dialogIds.TryGetValue(key, out var dialogId);
+            var messages = dialogId != Guid.Empty && _messages.TryGetValue(dialogId, out var list)
+                ? list.Take(Math.Clamp(limit, 1, 500)).ToList()
+                : new List<DialogMessageRecord>();
+
+            return new DialogThreadRecord
+            {
+                DialogId = dialogId == Guid.Empty ? null : dialogId,
+                PeerUserId = peer.Id,
+                PeerDisplayName = peer.DisplayName,
+                PeerUsername = peer.Username,
+                PeerLastSeenAt = peer.LastSeenAt,
+                Messages = messages
+            };
+        }
+
+        public async Task<(DialogMessageRecord Message, DialogThreadRecord Thread)?> SendMessageAsync(Guid senderUserId, Guid peerUserId, string text, int historyLimit)
+        {
+            var peer = await userRepository.GetByUserIdAsync(peerUserId);
+            if (peer is null)
+            {
+                return null;
+            }
+
+            var key = BuildKey(senderUserId, peerUserId);
+            if (!_dialogIds.TryGetValue(key, out var dialogId))
+            {
+                dialogId = Guid.NewGuid();
+                _dialogIds[key] = dialogId;
+                _messages[dialogId] = new List<DialogMessageRecord>();
+            }
+
+            var message = new DialogMessageRecord
+            {
+                MessageId = Guid.NewGuid(),
+                DialogId = dialogId,
+                SenderUserId = senderUserId,
+                Text = text.Trim(),
+                CreatedAt = DateTime.UtcNow
+            };
+            _messages[dialogId].Add(message);
+
+            var thread = await GetDialogAsync(senderUserId, peerUserId, historyLimit);
+            if (thread is null)
+            {
+                return null;
+            }
+
+            return (message, thread);
+        }
+
+        private static string BuildKey(Guid a, Guid b)
+        {
+            return string.CompareOrdinal(a.ToString(), b.ToString()) <= 0 ? $"{a}|{b}" : $"{b}|{a}";
         }
     }
 }

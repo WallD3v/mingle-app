@@ -24,6 +24,32 @@ data class UserSearchModel(
     val lastSeenAtUnixMs: Long
 )
 
+data class DialogListItemModel(
+    val dialogId: String,
+    val peer: UserSearchModel,
+    val lastMessageText: String,
+    val lastMessageAtUnixMs: Long
+)
+
+data class DialogMessageModel(
+    val messageId: String,
+    val dialogId: String,
+    val senderUserId: String,
+    val text: String,
+    val createdAtUnixMs: Long
+)
+
+data class DialogThreadModel(
+    val dialogId: String?,
+    val peer: UserSearchModel,
+    val messages: List<DialogMessageModel>
+)
+
+data class IncomingMessageModel(
+    val message: DialogMessageModel,
+    val from: UserSearchModel
+)
+
 sealed class ProfileResult {
     data class Success(val profile: ProfileModel) : ProfileResult()
     data class Failure(val message: String) : ProfileResult()
@@ -34,12 +60,29 @@ sealed class UserSearchResult {
     data class Failure(val message: String) : UserSearchResult()
 }
 
+sealed class DialogListResult {
+    data class Success(val items: List<DialogListItemModel>) : DialogListResult()
+    data class Failure(val message: String) : DialogListResult()
+}
+
+sealed class DialogThreadResult {
+    data class Success(val thread: DialogThreadModel) : DialogThreadResult()
+    data class Failure(val message: String) : DialogThreadResult()
+}
+
+sealed class SendMessageResult {
+    data class Success(val message: DialogMessageModel) : SendMessageResult()
+    data class Failure(val message: String) : SendMessageResult()
+}
+
 internal fun mapServerErrorToRuMessage(errorCode: String?): String {
     return when (errorCode) {
         "INVALID_MNEMONIC" -> "Неверная секретная фраза"
         "UNAUTHORIZED" -> "Аккаунт не найден"
         "USERNAME_TAKEN" -> "Этот username уже занят"
         "INVALID_USERNAME" -> "Неверный формат username"
+        "USER_NOT_FOUND" -> "Пользователь не найден"
+        "INVALID_MESSAGE" -> "Пустое сообщение нельзя отправить"
         else -> "Внутренняя ошибка сервера"
     }
 }
@@ -49,6 +92,47 @@ class AuthRepository(
     private val sessionStore: SecureSessionStore
 ) {
     private val tag = "AuthRepository"
+    fun getCurrentUserId(): String? = sessionStore.getUserId()
+    fun setIncomingMessageListener(listener: ((IncomingMessageModel) -> Unit)?) {
+        if (listener == null) {
+            tcpClient.setMessageListener(null)
+            return
+        }
+
+        tcpClient.setMessageListener { incoming ->
+            val message = incoming.message ?: return@setMessageListener
+            val from = incoming.from ?: return@setMessageListener
+            listener(
+                IncomingMessageModel(
+                    message = DialogMessageModel(
+                        messageId = message.messageId,
+                        dialogId = message.dialogId,
+                        senderUserId = message.senderUserId,
+                        text = message.text,
+                        createdAtUnixMs = message.createdAtUnixMs
+                    ),
+                    from = UserSearchModel(
+                        userId = from.userId,
+                        displayName = from.displayName,
+                        username = from.username,
+                        lastSeenAtUnixMs = from.lastSeenAtUnixMs
+                    )
+                )
+            )
+        }
+    }
+
+    suspend fun subscribeRealtimeUpdates(): Boolean {
+        val token = sessionStore.getToken() ?: return false
+        return try {
+            val response = tcpClient.subscribeUpdates(token)
+            response.subscribed != null && response.error == null
+        } catch (ex: Exception) {
+            Log.e(tag, "TCP subscribe updates failed", ex)
+            false
+        }
+    }
+
     suspend fun register(mnemonicInput: String): AuthResult {
         return authInternal(mnemonicInput, isRegister = true)
     }
@@ -170,6 +254,104 @@ class AuthRepository(
         } catch (ex: Exception) {
             Log.e(tag, "TCP user search failed", ex)
             UserSearchResult.Failure("Ошибка сети. Проверьте соединение")
+        }
+    }
+
+    suspend fun getDialogs(): DialogListResult {
+        val token = sessionStore.getToken() ?: return DialogListResult.Failure("Нужна авторизация")
+
+        return try {
+            val response = tcpClient.listDialogs(token)
+            when {
+                response.dialogsData != null -> {
+                    val items = response.dialogsData.items.mapNotNull { item ->
+                        val peer = item.peer ?: return@mapNotNull null
+                        DialogListItemModel(
+                            dialogId = item.dialogId,
+                            peer = UserSearchModel(
+                                userId = peer.userId,
+                                displayName = peer.displayName,
+                                username = peer.username,
+                                lastSeenAtUnixMs = peer.lastSeenAtUnixMs
+                            ),
+                            lastMessageText = item.lastMessageText,
+                            lastMessageAtUnixMs = item.lastMessageAtUnixMs
+                        )
+                    }
+                    DialogListResult.Success(items)
+                }
+                response.error != null -> DialogListResult.Failure(mapServerErrorToRuMessage(response.error.code))
+                else -> DialogListResult.Failure("Внутренняя ошибка сервера")
+            }
+        } catch (ex: Exception) {
+            Log.e(tag, "TCP list dialogs failed", ex)
+            DialogListResult.Failure("Ошибка сети. Проверьте соединение")
+        }
+    }
+
+    suspend fun openDialog(peerUserId: String): DialogThreadResult {
+        val token = sessionStore.getToken() ?: return DialogThreadResult.Failure("Нужна авторизация")
+
+        return try {
+            val response = tcpClient.openDialog(token, peerUserId)
+            when {
+                response.dialogData != null -> {
+                    val peer = response.dialogData.peer
+                        ?: return DialogThreadResult.Failure("Пользователь не найден")
+                    DialogThreadResult.Success(
+                        DialogThreadModel(
+                            dialogId = response.dialogData.dialogId.ifBlank { null },
+                            peer = UserSearchModel(
+                                userId = peer.userId,
+                                displayName = peer.displayName,
+                                username = peer.username,
+                                lastSeenAtUnixMs = peer.lastSeenAtUnixMs
+                            ),
+                            messages = response.dialogData.messages.map {
+                                DialogMessageModel(
+                                    messageId = it.messageId,
+                                    dialogId = it.dialogId,
+                                    senderUserId = it.senderUserId,
+                                    text = it.text,
+                                    createdAtUnixMs = it.createdAtUnixMs
+                                )
+                            }
+                        )
+                    )
+                }
+                response.error != null -> DialogThreadResult.Failure(mapServerErrorToRuMessage(response.error.code))
+                else -> DialogThreadResult.Failure("Внутренняя ошибка сервера")
+            }
+        } catch (ex: Exception) {
+            Log.e(tag, "TCP open dialog failed", ex)
+            DialogThreadResult.Failure("Ошибка сети. Проверьте соединение")
+        }
+    }
+
+    suspend fun sendMessage(peerUserId: String, text: String): SendMessageResult {
+        val token = sessionStore.getToken() ?: return SendMessageResult.Failure("Нужна авторизация")
+
+        return try {
+            val response = tcpClient.sendMessage(token, peerUserId, text)
+            when {
+                response.messageSent?.message != null -> {
+                    val msg = response.messageSent.message
+                    SendMessageResult.Success(
+                        DialogMessageModel(
+                            messageId = msg.messageId,
+                            dialogId = msg.dialogId,
+                            senderUserId = msg.senderUserId,
+                            text = msg.text,
+                            createdAtUnixMs = msg.createdAtUnixMs
+                        )
+                    )
+                }
+                response.error != null -> SendMessageResult.Failure(mapServerErrorToRuMessage(response.error.code))
+                else -> SendMessageResult.Failure("Внутренняя ошибка сервера")
+            }
+        } catch (ex: Exception) {
+            Log.e(tag, "TCP send message failed", ex)
+            SendMessageResult.Failure("Ошибка сети. Проверьте соединение")
         }
     }
 

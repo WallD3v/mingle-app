@@ -13,6 +13,10 @@ public sealed class ClientMessage
     [ProtoMember(6)] public ProfileGetRequest? ProfileGet { get; set; }
     [ProtoMember(7)] public ProfileUpdateRequest? ProfileUpdate { get; set; }
     [ProtoMember(8)] public UserSearchRequest? UserSearch { get; set; }
+    [ProtoMember(9)] public DialogsListRequest? DialogsList { get; set; }
+    [ProtoMember(10)] public DialogOpenRequest? DialogOpen { get; set; }
+    [ProtoMember(11)] public MessageSendRequest? MessageSend { get; set; }
+    [ProtoMember(12)] public SubscribeUpdatesRequest? SubscribeUpdates { get; set; }
 }
 
 [ProtoContract]
@@ -26,6 +30,11 @@ public sealed class ServerMessage
     [ProtoMember(6)] public ProfileData? ProfileData { get; set; }
     [ProtoMember(7)] public ProfileData? ProfileUpdated { get; set; }
     [ProtoMember(8)] public UserSearchResults? UserSearchResults { get; set; }
+    [ProtoMember(9)] public DialogsData? DialogsData { get; set; }
+    [ProtoMember(10)] public DialogData? DialogData { get; set; }
+    [ProtoMember(11)] public MessageSent? MessageSent { get; set; }
+    [ProtoMember(12)] public Subscribed? Subscribed { get; set; }
+    [ProtoMember(13)] public MessageReceived? MessageReceived { get; set; }
 }
 
 [ProtoContract]
@@ -115,4 +124,93 @@ public sealed class UserSearchResultItem
 public sealed class UserSearchResults
 {
     [ProtoMember(1)] public List<UserSearchResultItem> Items { get; set; } = new();
+}
+
+[ProtoContract]
+public sealed class DialogsListRequest
+{
+    [ProtoMember(1)] public string Token { get; set; } = string.Empty;
+}
+
+[ProtoContract]
+public sealed class DialogOpenRequest
+{
+    [ProtoMember(1)] public string Token { get; set; } = string.Empty;
+    [ProtoMember(2)] public string PeerUserId { get; set; } = string.Empty;
+}
+
+[ProtoContract]
+public sealed class MessageSendRequest
+{
+    [ProtoMember(1)] public string Token { get; set; } = string.Empty;
+    [ProtoMember(2)] public string PeerUserId { get; set; } = string.Empty;
+    [ProtoMember(3)] public string Text { get; set; } = string.Empty;
+}
+
+[ProtoContract]
+public sealed class UserPreview
+{
+    [ProtoMember(1)] public string UserId { get; set; } = string.Empty;
+    [ProtoMember(2)] public string DisplayName { get; set; } = string.Empty;
+    [ProtoMember(3)] public string Username { get; set; } = string.Empty;
+    [ProtoMember(4)] public long LastSeenAtUnixMs { get; set; }
+}
+
+[ProtoContract]
+public sealed class DialogMessage
+{
+    [ProtoMember(1)] public string MessageId { get; set; } = string.Empty;
+    [ProtoMember(2)] public string DialogId { get; set; } = string.Empty;
+    [ProtoMember(3)] public string SenderUserId { get; set; } = string.Empty;
+    [ProtoMember(4)] public string Text { get; set; } = string.Empty;
+    [ProtoMember(5)] public long CreatedAtUnixMs { get; set; }
+}
+
+[ProtoContract]
+public sealed class DialogListItem
+{
+    [ProtoMember(1)] public string DialogId { get; set; } = string.Empty;
+    [ProtoMember(2)] public UserPreview? Peer { get; set; }
+    [ProtoMember(3)] public string LastMessageText { get; set; } = string.Empty;
+    [ProtoMember(4)] public long LastMessageAtUnixMs { get; set; }
+}
+
+[ProtoContract]
+public sealed class DialogsData
+{
+    [ProtoMember(1)] public List<DialogListItem> Items { get; set; } = new();
+}
+
+[ProtoContract]
+public sealed class DialogData
+{
+    [ProtoMember(1)] public string DialogId { get; set; } = string.Empty;
+    [ProtoMember(2)] public UserPreview? Peer { get; set; }
+    [ProtoMember(3)] public List<DialogMessage> Messages { get; set; } = new();
+}
+
+[ProtoContract]
+public sealed class MessageSent
+{
+    [ProtoMember(1)] public DialogMessage? Message { get; set; }
+    [ProtoMember(2)] public UserPreview? Peer { get; set; }
+}
+
+[ProtoContract]
+public sealed class SubscribeUpdatesRequest
+{
+    [ProtoMember(1)] public string Token { get; set; } = string.Empty;
+}
+
+[ProtoContract]
+public sealed class Subscribed
+{
+    [ProtoMember(1)] public string UserId { get; set; } = string.Empty;
+}
+
+[ProtoContract]
+public sealed class MessageReceived
+{
+    [ProtoMember(1)] public DialogMessage? Message { get; set; }
+    [ProtoMember(2)] public UserPreview? From { get; set; }
 }

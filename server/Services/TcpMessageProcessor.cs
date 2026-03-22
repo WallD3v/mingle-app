@@ -8,11 +8,13 @@ public sealed class TcpMessageProcessor(
     AuthService authService,
     JwtValidationService jwtValidationService,
     IUserRepository userRepository,
+    IDialogRepository dialogRepository,
+    IRealtimeConnectionRegistry realtimeRegistry,
     ILogger<TcpMessageProcessor> logger)
 {
     public const uint ProtocolVersion = 1;
 
-    public async Task<ServerMessage> ProcessAsync(ClientMessage message)
+    public async Task<ServerMessage> ProcessAsync(ClientMessage message, Guid? connectionId = null, CancellationToken cancellationToken = default)
     {
         if (message.ProtocolVersion != ProtocolVersion)
         {
@@ -169,6 +171,119 @@ public sealed class TcpMessageProcessor(
                 };
             }
 
+            if (message.DialogsList is not null)
+            {
+                var dialogsUserId = jwtValidationService.ValidateAndGetUserId(message.DialogsList.Token);
+                if (!Guid.TryParse(dialogsUserId, out var userId))
+                {
+                    return Error("UNAUTHORIZED", "Token is invalid.");
+                }
+
+                var dialogs = await dialogRepository.GetDialogsAsync(userId, 100);
+                return new ServerMessage
+                {
+                    ProtocolVersion = ProtocolVersion,
+                    DialogsData = new DialogsData
+                    {
+                        Items = dialogs.Select(ToDialogListItem).ToList()
+                    }
+                };
+            }
+
+            if (message.DialogOpen is not null)
+            {
+                var dialogUserId = jwtValidationService.ValidateAndGetUserId(message.DialogOpen.Token);
+                if (!Guid.TryParse(dialogUserId, out var userId))
+                {
+                    return Error("UNAUTHORIZED", "Token is invalid.");
+                }
+
+                if (!Guid.TryParse(message.DialogOpen.PeerUserId, out var peerUserId))
+                {
+                    return Error("USER_NOT_FOUND", "Peer user not found.");
+                }
+
+                var dialog = await dialogRepository.GetDialogAsync(userId, peerUserId, 200);
+                if (dialog is null)
+                {
+                    return Error("USER_NOT_FOUND", "Peer user not found.");
+                }
+
+                return new ServerMessage
+                {
+                    ProtocolVersion = ProtocolVersion,
+                    DialogData = ToDialogData(dialog)
+                };
+            }
+
+            if (message.MessageSend is not null)
+            {
+                var senderUserId = jwtValidationService.ValidateAndGetUserId(message.MessageSend.Token);
+                if (!Guid.TryParse(senderUserId, out var userId))
+                {
+                    return Error("UNAUTHORIZED", "Token is invalid.");
+                }
+
+                if (!Guid.TryParse(message.MessageSend.PeerUserId, out var peerUserId))
+                {
+                    return Error("USER_NOT_FOUND", "Peer user not found.");
+                }
+
+                if (string.IsNullOrWhiteSpace(message.MessageSend.Text))
+                {
+                    return Error("INVALID_MESSAGE", "Message text cannot be empty.");
+                }
+
+                var sent = await dialogRepository.SendMessageAsync(userId, peerUserId, message.MessageSend.Text, 200);
+                if (sent is null)
+                {
+                    return Error("USER_NOT_FOUND", "Peer user not found.");
+                }
+
+                var sender = await userRepository.GetByUserIdAsync(userId);
+                if (sender is not null)
+                {
+                    await realtimeRegistry.PushMessageReceivedAsync(
+                        peerUserId,
+                        new MessageReceived
+                        {
+                            Message = ToDialogMessage(sent.Value.Message),
+                            From = ToUserPreview(sender)
+                        },
+                        cancellationToken);
+                }
+
+                return new ServerMessage
+                {
+                    ProtocolVersion = ProtocolVersion,
+                    MessageSent = new MessageSent
+                    {
+                        Message = ToDialogMessage(sent.Value.Message),
+                        Peer = ToUserPreview(sent.Value.Thread)
+                    }
+                };
+            }
+
+            if (message.SubscribeUpdates is not null)
+            {
+                var subscribedUserId = jwtValidationService.ValidateAndGetUserId(message.SubscribeUpdates.Token);
+                if (!Guid.TryParse(subscribedUserId, out var userId))
+                {
+                    return Error("UNAUTHORIZED", "Token is invalid.");
+                }
+
+                if (!connectionId.HasValue || !realtimeRegistry.Subscribe(connectionId.Value, userId))
+                {
+                    return Error("SERVER_ERROR", "Connection subscribe failed.");
+                }
+
+                return new ServerMessage
+                {
+                    ProtocolVersion = ProtocolVersion,
+                    Subscribed = new Subscribed { UserId = userId.ToString() }
+                };
+            }
+
             return Error("SERVER_ERROR", "Empty payload.");
         }
         catch (InvalidMnemonicException)
@@ -233,6 +348,67 @@ public sealed class TcpMessageProcessor(
     private static UserSearchResultItem ToSearchItem(UserRecord user)
     {
         return new UserSearchResultItem
+        {
+            UserId = user.Id.ToString(),
+            DisplayName = user.DisplayName,
+            Username = user.Username,
+            LastSeenAtUnixMs = new DateTimeOffset(user.LastSeenAt).ToUnixTimeMilliseconds()
+        };
+    }
+
+    private static DialogListItem ToDialogListItem(DialogListItemRecord item)
+    {
+        return new DialogListItem
+        {
+            DialogId = item.DialogId.ToString(),
+            Peer = new UserPreview
+            {
+                UserId = item.PeerUserId.ToString(),
+                DisplayName = item.PeerDisplayName,
+                Username = item.PeerUsername,
+                LastSeenAtUnixMs = new DateTimeOffset(item.PeerLastSeenAt).ToUnixTimeMilliseconds()
+            },
+            LastMessageText = item.LastMessageText,
+            LastMessageAtUnixMs = new DateTimeOffset(item.LastMessageAt).ToUnixTimeMilliseconds()
+        };
+    }
+
+    private static DialogData ToDialogData(DialogThreadRecord thread)
+    {
+        return new DialogData
+        {
+            DialogId = thread.DialogId?.ToString() ?? string.Empty,
+            Peer = ToUserPreview(thread),
+            Messages = thread.Messages.Select(ToDialogMessage).ToList()
+        };
+    }
+
+    private static DialogMessage ToDialogMessage(DialogMessageRecord message)
+    {
+        return new DialogMessage
+        {
+            MessageId = message.MessageId.ToString(),
+            DialogId = message.DialogId.ToString(),
+            SenderUserId = message.SenderUserId.ToString(),
+            Text = message.Text,
+            CreatedAtUnixMs = new DateTimeOffset(message.CreatedAt).ToUnixTimeMilliseconds()
+        };
+    }
+
+    private static UserPreview ToUserPreview(DialogThreadRecord thread)
+    {
+        return new UserPreview
+        {
+            UserId = thread.PeerUserId.ToString(),
+            DisplayName = thread.PeerDisplayName,
+            Username = thread.PeerUsername,
+            LastSeenAtUnixMs = new DateTimeOffset(thread.PeerLastSeenAt).ToUnixTimeMilliseconds()
+        };
+    }
+
+    private static UserPreview ToUserPreview(UserRecord user)
+    {
+        return new UserPreview
         {
             UserId = user.Id.ToString(),
             DisplayName = user.DisplayName,

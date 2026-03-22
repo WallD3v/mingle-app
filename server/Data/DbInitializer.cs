@@ -36,9 +36,38 @@ public static class DbInitializer
             CREATE UNIQUE INDEX IF NOT EXISTS users_username_ci_uidx ON users (LOWER(username));
             """;
 
+        const string dialogsSql = """
+            CREATE TABLE IF NOT EXISTS dialogs (
+                id UUID PRIMARY KEY,
+                user_a_id UUID NOT NULL REFERENCES users(id) ON DELETE CASCADE,
+                user_b_id UUID NOT NULL REFERENCES users(id) ON DELETE CASCADE,
+                created_at TIMESTAMPTZ NOT NULL DEFAULT NOW(),
+                last_message_at TIMESTAMPTZ NOT NULL DEFAULT NOW(),
+                CHECK (user_a_id <> user_b_id)
+            );
+
+            CREATE UNIQUE INDEX IF NOT EXISTS dialogs_user_pair_uidx
+            ON dialogs ((LEAST(user_a_id, user_b_id)), (GREATEST(user_a_id, user_b_id)));
+
+            CREATE INDEX IF NOT EXISTS dialogs_user_a_idx ON dialogs (user_a_id, last_message_at DESC);
+            CREATE INDEX IF NOT EXISTS dialogs_user_b_idx ON dialogs (user_b_id, last_message_at DESC);
+
+            CREATE TABLE IF NOT EXISTS messages (
+                id UUID PRIMARY KEY,
+                dialog_id UUID NOT NULL REFERENCES dialogs(id) ON DELETE CASCADE,
+                sender_user_id UUID NOT NULL REFERENCES users(id) ON DELETE CASCADE,
+                body TEXT NOT NULL,
+                created_at TIMESTAMPTZ NOT NULL DEFAULT NOW()
+            );
+
+            CREATE INDEX IF NOT EXISTS messages_dialog_created_idx
+            ON messages (dialog_id, created_at ASC);
+            """;
+
         await using var connection = await dataSource.OpenConnectionAsync();
         await connection.ExecuteAsync("CREATE EXTENSION IF NOT EXISTS pgcrypto;");
         await connection.ExecuteAsync(createTableSql);
         await connection.ExecuteAsync(migrationSql);
+        await connection.ExecuteAsync(dialogsSql);
     }
 }

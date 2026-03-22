@@ -8,6 +8,7 @@ namespace Mingle.Server.Services;
 public sealed class TcpServerHostedService(
     IConfiguration configuration,
     TcpMessageProcessor messageProcessor,
+    IRealtimeConnectionRegistry realtimeRegistry,
     ILogger<TcpServerHostedService> logger) : BackgroundService
 {
     private TcpListener? _listener;
@@ -42,9 +43,29 @@ public sealed class TcpServerHostedService(
 
     private async Task HandleClientAsync(TcpClient client, CancellationToken cancellationToken)
     {
+        var connectionId = Guid.NewGuid();
+        var sendLock = new SemaphoreSlim(1, 1);
+
         try
         {
             using var stream = client.GetStream();
+            var connection = new TcpClientConnection(
+                connectionId,
+                async (message, ct) =>
+                {
+                    var responseBytes = TcpMessageProcessor.Serialize(message);
+                    await sendLock.WaitAsync(ct);
+                    try
+                    {
+                        await TcpFrameCodec.WriteFrameAsync(stream, responseBytes, ct);
+                    }
+                    finally
+                    {
+                        sendLock.Release();
+                    }
+                });
+            realtimeRegistry.Register(connection);
+
             while (!cancellationToken.IsCancellationRequested)
             {
                 var payload = await TcpFrameCodec.ReadFrameAsync(stream, cancellationToken);
@@ -54,10 +75,8 @@ public sealed class TcpServerHostedService(
                 }
 
                 var request = TcpMessageProcessor.Deserialize<ClientMessage>(payload);
-                var response = await messageProcessor.ProcessAsync(request);
-                var responseBytes = TcpMessageProcessor.Serialize(response);
-
-                await TcpFrameCodec.WriteFrameAsync(stream, responseBytes, cancellationToken);
+                var response = await messageProcessor.ProcessAsync(request, connectionId, cancellationToken);
+                await connection.SendAsync(response, cancellationToken);
             }
         }
         catch (InvalidDataException ex)
@@ -74,7 +93,9 @@ public sealed class TcpServerHostedService(
         }
         finally
         {
+            realtimeRegistry.Unregister(connectionId);
             client.Close();
+            sendLock.Dispose();
         }
     }
 }
