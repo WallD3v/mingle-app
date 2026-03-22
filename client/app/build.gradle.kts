@@ -17,7 +17,8 @@ android {
         versionName = "1.0"
 
         testInstrumentationRunner = "androidx.test.runner.AndroidJUnitRunner"
-        buildConfigField("String", "API_BASE_URL", "\"http://10.0.2.2:58080/\"")
+        buildConfigField("String", "TCP_HOST", "\"10.0.2.2\"")
+        buildConfigField("int", "TCP_PORT", "58081")
     }
 
     buildTypes {
@@ -64,12 +65,8 @@ dependencies {
 
     implementation("androidx.security:security-crypto:1.1.0-alpha06")
 
-    implementation("com.squareup.retrofit2:retrofit:2.11.0")
-    implementation("com.squareup.retrofit2:converter-moshi:2.11.0")
-    implementation("com.squareup.okhttp3:okhttp:4.12.0")
-    implementation("com.squareup.moshi:moshi-kotlin:1.15.1")
-
     implementation("org.bitcoinj:bitcoinj-core:0.16.3")
+    implementation("org.jetbrains.kotlinx:kotlinx-serialization-protobuf:1.7.3")
 
     implementation("org.jetbrains.kotlinx:kotlinx-coroutines-android:1.8.1")
 

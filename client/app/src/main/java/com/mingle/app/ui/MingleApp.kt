@@ -32,10 +32,10 @@ import androidx.compose.ui.Modifier
 import androidx.compose.ui.platform.LocalContext
 import androidx.compose.ui.text.input.KeyboardCapitalization
 import androidx.compose.ui.unit.dp
-import com.mingle.app.data.api.ApiClientFactory
 import com.mingle.app.data.repository.AuthRepository
 import com.mingle.app.data.repository.AuthResult
 import com.mingle.app.data.storage.SecureSessionStore
+import com.mingle.app.data.tcp.TcpAuthClient
 import kotlinx.coroutines.launch
 
 private enum class Screen {
@@ -50,8 +50,8 @@ private enum class Screen {
 fun MingleApp() {
     val context = LocalContext.current
     val sessionStore = remember { SecureSessionStore(context) }
-    val authApi = remember { ApiClientFactory.createAuthApi { sessionStore.getToken() } }
-    val repository = remember { AuthRepository(authApi, sessionStore) }
+    val tcpClient = remember { TcpAuthClient() }
+    val repository = remember { AuthRepository(tcpClient, sessionStore) }
 
     var screen by remember { mutableStateOf(Screen.LOADING) }
 

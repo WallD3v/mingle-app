@@ -9,5 +9,6 @@ FROM mcr.microsoft.com/dotnet/aspnet:8.0 AS final
 WORKDIR /app
 COPY --from=build /app/publish .
 ENV ASPNETCORE_URLS=http://+:8080
-EXPOSE 8080
+ENV TCP_PORT=58081
+EXPOSE 58081
 ENTRYPOINT ["dotnet", "Mingle.Server.dll"]

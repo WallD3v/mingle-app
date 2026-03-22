@@ -10,6 +10,7 @@
     <PackageReference Include="Microsoft.AspNetCore.Authentication.JwtBearer" Version="8.0.8" />
     <PackageReference Include="NBitcoin" Version="7.0.36" />
     <PackageReference Include="Npgsql" Version="8.0.3" />
+    <PackageReference Include="protobuf-net" Version="3.2.30" />
     <PackageReference Include="Swashbuckle.AspNetCore" Version="6.6.2" />
   </ItemGroup>
 

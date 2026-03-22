@@ -4,7 +4,7 @@
 - PostgreSQL (хранение пользователей, чатов, сообщений, статусов доставки)
 - Redis (кэш, presence, очереди, временные данные)
 - MinIO/S3 (вложения: фото, видео, документы)
-- ASP.NET Core API (регистрация/логин по 24 словам + JWT)
+- ASP.NET Core TCP сервер (регистрация/логин по 24 словам + JWT)
 - Android клиент (Kotlin + Jetpack Compose)
 
 Порты уже зафиксированы в `.env` (нестандартные, чтобы снизить риск конфликтов):
@@ -12,7 +12,7 @@
 - Redis: `56379`
 - MinIO API: `59000`
 - MinIO Console: `59001`
-- Server API (когда будет Dockerfile в `server/`): `58080`
+- Server TCP: `58081`
 
 ## Быстрый старт (Windows 11 / Ubuntu)
 
@@ -51,21 +51,32 @@ docker compose down -v
 docker compose --profile app up -d --build
 ```
 
-## Реализованные API
+## TCP протокол
 
-- `POST /auth/register` — создать/получить аккаунт по BIP39 24 словам (идемпотентно)
-- `POST /auth/login` — вход по BIP39 24 словам
-- `GET /me` — проверка JWT токена
+Формат кадра:
+- `uint32_be length` + `protobuf payload`
 
-Контракты:
-- `AuthRequest { mnemonic }`
-- `AuthResponse { accessToken, userId }`
-- `ErrorResponse { code, message }`
+Файл схемы:
+- `server/Protocol/mingle.proto`
+
+Сообщения клиента:
+- `register { mnemonic }`
+- `login { mnemonic }`
+- `me { token }`
+- `ping`
+
+Сообщения сервера:
+- `auth_success { access_token, user_id }`
+- `me_success { user_id }`
+- `error { code, message }`
+- `pong`
 
 Коды ошибок:
-- `INVALID_MNEMONIC` (400)
-- `UNAUTHORIZED` (401)
-- `SERVER_ERROR` (500)
+- `INVALID_MNEMONIC`
+- `UNAUTHORIZED`
+- `SERVER_ERROR`
+
+Важно: текущий MVP работает по TCP **без TLS** (только для dev/test в доверенной сети).
 
 ## Прод (Ubuntu)
 

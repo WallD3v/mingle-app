@@ -6,16 +6,16 @@ import org.junit.Test
 class AuthMessagesTest {
     @Test
     fun mapsInvalidMnemonic() {
-        assertEquals("Неверная секретная фраза", mapServerErrorToRuMessage("INVALID_MNEMONIC", 400))
+        assertEquals("Неверная секретная фраза", mapServerErrorToRuMessage("INVALID_MNEMONIC"))
     }
 
     @Test
     fun mapsUnauthorized() {
-        assertEquals("Аккаунт не найден", mapServerErrorToRuMessage("UNAUTHORIZED", 401))
+        assertEquals("Аккаунт не найден", mapServerErrorToRuMessage("UNAUTHORIZED"))
     }
 
     @Test
     fun mapsServerErrorFallback() {
-        assertEquals("Внутренняя ошибка сервера", mapServerErrorToRuMessage(null, 500))
+        assertEquals("Внутренняя ошибка сервера", mapServerErrorToRuMessage(null))
     }
 }

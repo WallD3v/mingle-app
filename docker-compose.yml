@@ -86,9 +86,9 @@ services:
       JWT_ISSUER: ${JWT_ISSUER}
       JWT_AUDIENCE: ${JWT_AUDIENCE}
       JWT_EXPIRY_DAYS: ${JWT_EXPIRY_DAYS}
-      SERVER_PORT: ${SERVER_PORT}
+      TCP_PORT: ${TCP_PORT}
     ports:
-      - "${SERVER_PORT}:8080"
+      - "${TCP_PORT}:${TCP_PORT}"
     depends_on:
       postgres:
         condition: service_healthy
