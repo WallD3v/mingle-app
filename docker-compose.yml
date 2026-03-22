@@ -33,7 +33,7 @@ services:
       retries: 10
 
   minio:
-    image: minio/minio:RELEASE.2026-01-18T00-31-37Z
+    image: minio/minio:latest
     container_name: mingle_minio
     restart: unless-stopped
     environment:
@@ -52,7 +52,7 @@ services:
       retries: 10
 
   minio_init:
-    image: minio/mc:RELEASE.2026-01-17T23-25-50Z
+    image: minio/mc:latest
     container_name: mingle_minio_init
     depends_on:
       minio:
