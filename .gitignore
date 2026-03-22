@@ -1,0 +1,17 @@
+# Dotnet
+**/bin/
+**/obj/
+
+# Android/Gradle
+client/.gradle/
+client/**/build/
+client/local.properties
+
+# IDE
+.vscode/
+.idea/
+*.iml
+
+# OS
+.DS_Store
+Thumbs.db
