@@ -70,7 +70,12 @@ public sealed class AuthFlowTests
                 return Task.FromResult(existing);
             }
 
-            var created = new UserRecord(Guid.NewGuid(), accountKey, DateTimeOffset.UtcNow);
+            var created = new UserRecord
+            {
+                Id = Guid.NewGuid(),
+                AccountKey = accountKey,
+                CreatedAt = DateTime.UtcNow
+            };
             _users[accountKey] = created;
             return Task.FromResult(created);
         }

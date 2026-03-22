@@ -3,6 +3,7 @@ using Mingle.Server.Data;
 using Mingle.Server.Protocol;
 using Mingle.Server.Services;
 using Mingle.Server.Transport;
+using Microsoft.Extensions.Logging.Abstractions;
 using Xunit;
 
 namespace Mingle.Server.Tests;
@@ -107,7 +108,7 @@ public sealed class TcpProtocolTests
         var jwtTokenService = new JwtTokenService(jwtOptions);
         var authService = new AuthService(mnemonicService, repo, jwtTokenService);
         var validationService = new JwtValidationService(jwtOptions);
-        return new TcpMessageProcessor(authService, validationService);
+        return new TcpMessageProcessor(authService, validationService, NullLogger<TcpMessageProcessor>.Instance);
     }
 
     private sealed class InMemoryUserRepository : IUserRepository
@@ -121,7 +122,12 @@ public sealed class TcpProtocolTests
                 return Task.FromResult(existing);
             }
 
-            var created = new UserRecord(Guid.NewGuid(), accountKey, DateTimeOffset.UtcNow);
+            var created = new UserRecord
+            {
+                Id = Guid.NewGuid(),
+                AccountKey = accountKey,
+                CreatedAt = DateTime.UtcNow
+            };
             _users[accountKey] = created;
             return Task.FromResult(created);
         }
