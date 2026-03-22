@@ -33,6 +33,22 @@ class TcpAuthClient(
         return send(ClientMessage(ping = PingRequest(System.currentTimeMillis())))
     }
 
+    suspend fun getProfile(token: String): ServerMessage {
+        return send(ClientMessage(profileGet = ProfileGetRequest(token = token)))
+    }
+
+    suspend fun updateProfile(token: String, displayName: String, username: String): ServerMessage {
+        return send(
+            ClientMessage(
+                profileUpdate = ProfileUpdateRequest(
+                    token = token,
+                    displayName = displayName,
+                    username = username
+                )
+            )
+        )
+    }
+
     suspend fun close() {
         mutex.withLock {
             socket?.close()

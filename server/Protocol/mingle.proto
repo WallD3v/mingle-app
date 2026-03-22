@@ -13,6 +13,16 @@ message PingRequest {
   int64 unix_time_ms = 1;
 }
 
+message ProfileGetRequest {
+  string token = 1;
+}
+
+message ProfileUpdateRequest {
+  string token = 1;
+  string display_name = 2;
+  string username = 3;
+}
+
 message AuthSuccess {
   string access_token = 1;
   string user_id = 2;
@@ -31,6 +41,13 @@ message Pong {
   int64 unix_time_ms = 1;
 }
 
+message ProfileData {
+  string user_id = 1;
+  string display_name = 2;
+  string username = 3;
+  int64 last_seen_at_unix_ms = 4;
+}
+
 message ClientMessage {
   uint32 protocol_version = 1;
   oneof payload {
@@ -38,6 +55,8 @@ message ClientMessage {
     AuthRequest login = 3;
     MeRequest me = 4;
     PingRequest ping = 5;
+    ProfileGetRequest profile_get = 6;
+    ProfileUpdateRequest profile_update = 7;
   }
 }
 
@@ -48,5 +67,7 @@ message ServerMessage {
     MeSuccess me_success = 3;
     Error error = 4;
     Pong pong = 5;
+    ProfileData profile_data = 6;
+    ProfileData profile_updated = 7;
   }
 }

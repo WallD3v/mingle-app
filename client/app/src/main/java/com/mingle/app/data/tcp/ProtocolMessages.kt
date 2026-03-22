@@ -11,7 +11,9 @@ data class ClientMessage(
     @ProtoNumber(2) val register: AuthRequest? = null,
     @ProtoNumber(3) val login: AuthRequest? = null,
     @ProtoNumber(4) val me: MeRequest? = null,
-    @ProtoNumber(5) val ping: PingRequest? = null
+    @ProtoNumber(5) val ping: PingRequest? = null,
+    @ProtoNumber(6) val profileGet: ProfileGetRequest? = null,
+    @ProtoNumber(7) val profileUpdate: ProfileUpdateRequest? = null
 )
 
 @Serializable
@@ -20,7 +22,9 @@ data class ServerMessage(
     @ProtoNumber(2) val authSuccess: AuthSuccess? = null,
     @ProtoNumber(3) val meSuccess: MeSuccess? = null,
     @ProtoNumber(4) val error: ErrorMessage? = null,
-    @ProtoNumber(5) val pong: PongMessage? = null
+    @ProtoNumber(5) val pong: PongMessage? = null,
+    @ProtoNumber(6) val profileData: ProfileData? = null,
+    @ProtoNumber(7) val profileUpdated: ProfileData? = null
 )
 
 @Serializable
@@ -36,6 +40,18 @@ data class MeRequest(
 @Serializable
 data class PingRequest(
     @ProtoNumber(1) val unixTimeMs: Long
+)
+
+@Serializable
+data class ProfileGetRequest(
+    @ProtoNumber(1) val token: String
+)
+
+@Serializable
+data class ProfileUpdateRequest(
+    @ProtoNumber(1) val token: String,
+    @ProtoNumber(2) val displayName: String,
+    @ProtoNumber(3) val username: String
 )
 
 @Serializable
@@ -58,6 +74,14 @@ data class ErrorMessage(
 @Serializable
 data class PongMessage(
     @ProtoNumber(1) val unixTimeMs: Long
+)
+
+@Serializable
+data class ProfileData(
+    @ProtoNumber(1) val userId: String,
+    @ProtoNumber(2) val displayName: String,
+    @ProtoNumber(3) val username: String,
+    @ProtoNumber(4) val lastSeenAtUnixMs: Long
 )
 
 const val PROTOCOL_VERSION = 1

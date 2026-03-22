@@ -10,6 +10,8 @@ public sealed class ClientMessage
     [ProtoMember(3)] public AuthRequest? Login { get; set; }
     [ProtoMember(4)] public MeRequest? Me { get; set; }
     [ProtoMember(5)] public PingRequest? Ping { get; set; }
+    [ProtoMember(6)] public ProfileGetRequest? ProfileGet { get; set; }
+    [ProtoMember(7)] public ProfileUpdateRequest? ProfileUpdate { get; set; }
 }
 
 [ProtoContract]
@@ -20,6 +22,8 @@ public sealed class ServerMessage
     [ProtoMember(3)] public MeSuccess? MeSuccess { get; set; }
     [ProtoMember(4)] public ErrorResponse? Error { get; set; }
     [ProtoMember(5)] public PongResponse? Pong { get; set; }
+    [ProtoMember(6)] public ProfileData? ProfileData { get; set; }
+    [ProtoMember(7)] public ProfileData? ProfileUpdated { get; set; }
 }
 
 [ProtoContract]
@@ -38,6 +42,20 @@ public sealed class MeRequest
 public sealed class PingRequest
 {
     [ProtoMember(1)] public long UnixTimeMs { get; set; }
+}
+
+[ProtoContract]
+public sealed class ProfileGetRequest
+{
+    [ProtoMember(1)] public string Token { get; set; } = string.Empty;
+}
+
+[ProtoContract]
+public sealed class ProfileUpdateRequest
+{
+    [ProtoMember(1)] public string Token { get; set; } = string.Empty;
+    [ProtoMember(2)] public string DisplayName { get; set; } = string.Empty;
+    [ProtoMember(3)] public string Username { get; set; } = string.Empty;
 }
 
 [ProtoContract]
@@ -64,4 +82,13 @@ public sealed class ErrorResponse
 public sealed class PongResponse
 {
     [ProtoMember(1)] public long UnixTimeMs { get; set; }
+}
+
+[ProtoContract]
+public sealed class ProfileData
+{
+    [ProtoMember(1)] public string UserId { get; set; } = string.Empty;
+    [ProtoMember(2)] public string DisplayName { get; set; } = string.Empty;
+    [ProtoMember(3)] public string Username { get; set; } = string.Empty;
+    [ProtoMember(4)] public long LastSeenAtUnixMs { get; set; }
 }

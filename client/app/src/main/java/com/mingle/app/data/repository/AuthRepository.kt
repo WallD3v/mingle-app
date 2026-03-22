@@ -10,10 +10,24 @@ sealed class AuthResult {
     data class Failure(val message: String) : AuthResult()
 }
 
+data class ProfileModel(
+    val userId: String,
+    val displayName: String,
+    val username: String,
+    val lastSeenAtUnixMs: Long
+)
+
+sealed class ProfileResult {
+    data class Success(val profile: ProfileModel) : ProfileResult()
+    data class Failure(val message: String) : ProfileResult()
+}
+
 internal fun mapServerErrorToRuMessage(errorCode: String?): String {
     return when (errorCode) {
         "INVALID_MNEMONIC" -> "Неверная секретная фраза"
         "UNAUTHORIZED" -> "Аккаунт не найден"
+        "USERNAME_TAKEN" -> "Этот username уже занят"
+        "INVALID_USERNAME" -> "Неверный формат username"
         else -> "Внутренняя ошибка сервера"
     }
 }
@@ -59,6 +73,63 @@ class AuthRepository(
     }
 
     fun generateMnemonic(): String = MnemonicUtils.generate24Words()
+
+    suspend fun getProfile(): ProfileResult {
+        val token = sessionStore.getToken() ?: return ProfileResult.Failure("Нужна авторизация")
+
+        return try {
+            val response = tcpClient.getProfile(token)
+            when {
+                response.profileData != null -> {
+                    val profile = response.profileData
+                    ProfileResult.Success(
+                        ProfileModel(
+                            userId = profile.userId,
+                            displayName = profile.displayName,
+                            username = profile.username,
+                            lastSeenAtUnixMs = profile.lastSeenAtUnixMs
+                        )
+                    )
+                }
+                response.error != null -> ProfileResult.Failure(mapServerErrorToRuMessage(response.error.code))
+                else -> ProfileResult.Failure("Внутренняя ошибка сервера")
+            }
+        } catch (ex: Exception) {
+            Log.e(tag, "TCP getProfile failed", ex)
+            ProfileResult.Failure("Ошибка сети. Проверьте соединение")
+        }
+    }
+
+    suspend fun updateProfile(displayName: String, username: String): ProfileResult {
+        val token = sessionStore.getToken() ?: return ProfileResult.Failure("Нужна авторизация")
+
+        return try {
+            val response = tcpClient.updateProfile(
+                token = token,
+                displayName = displayName,
+                username = username
+            )
+
+            when {
+                response.profileUpdated != null -> {
+                    val profile = response.profileUpdated
+                    ProfileResult.Success(
+                        ProfileModel(
+                            userId = profile.userId,
+                            displayName = profile.displayName,
+                            username = profile.username,
+                            lastSeenAtUnixMs = profile.lastSeenAtUnixMs
+                        )
+                    )
+                }
+                response.error != null -> ProfileResult.Failure(mapServerErrorToRuMessage(response.error.code))
+                else -> ProfileResult.Failure("Внутренняя ошибка сервера")
+            }
+        } catch (ex: Exception) {
+            Log.e(tag, "TCP updateProfile failed", ex)
+            ProfileResult.Failure("Ошибка сети. Проверьте соединение")
+        }
+    }
 
     private suspend fun authInternal(mnemonicInput: String, isRegister: Boolean): AuthResult {
         val normalized = MnemonicUtils.normalizeMnemonic(mnemonicInput)

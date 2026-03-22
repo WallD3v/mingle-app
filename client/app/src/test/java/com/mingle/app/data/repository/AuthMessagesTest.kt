@@ -18,4 +18,9 @@ class AuthMessagesTest {
     fun mapsServerErrorFallback() {
         assertEquals("Внутренняя ошибка сервера", mapServerErrorToRuMessage(null))
     }
+
+    @Test
+    fun mapsUsernameTaken() {
+        assertEquals("Этот username уже занят", mapServerErrorToRuMessage("USERNAME_TAKEN"))
+    }
 }

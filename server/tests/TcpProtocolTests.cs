@@ -100,6 +100,72 @@ public sealed class TcpProtocolTests
         Assert.Equal("UNAUTHORIZED", response.Error!.Code);
     }
 
+    [Fact]
+    public async Task Processor_ProfileGet_ReturnsProfileData()
+    {
+        var processor = BuildProcessor();
+
+        var register = await processor.ProcessAsync(new ClientMessage
+        {
+            ProtocolVersion = 1,
+            Register = new AuthRequest { Mnemonic = ValidMnemonic }
+        });
+
+        var profile = await processor.ProcessAsync(new ClientMessage
+        {
+            ProtocolVersion = 1,
+            ProfileGet = new ProfileGetRequest { Token = register.AuthSuccess!.AccessToken }
+        });
+
+        Assert.NotNull(profile.ProfileData);
+        Assert.Equal("WallDev", profile.ProfileData!.DisplayName);
+    }
+
+    [Fact]
+    public async Task Processor_ProfileUpdate_UsernameTaken_ReturnsError()
+    {
+        var processor = BuildProcessor();
+        var secondMnemonic = "abandon abandon abandon abandon abandon abandon abandon abandon abandon abandon abandon abandon abandon abandon abandon abandon abandon abandon abandon abandon abandon abandon ability able";
+
+        var first = await processor.ProcessAsync(new ClientMessage
+        {
+            ProtocolVersion = 1,
+            Register = new AuthRequest { Mnemonic = ValidMnemonic }
+        });
+
+        var second = await processor.ProcessAsync(new ClientMessage
+        {
+            ProtocolVersion = 1,
+            Register = new AuthRequest { Mnemonic = secondMnemonic }
+        });
+
+        var updateOne = await processor.ProcessAsync(new ClientMessage
+        {
+            ProtocolVersion = 1,
+            ProfileUpdate = new ProfileUpdateRequest
+            {
+                Token = first.AuthSuccess!.AccessToken,
+                DisplayName = "User One",
+                Username = "walldev123"
+            }
+        });
+        Assert.NotNull(updateOne.ProfileUpdated);
+
+        var updateTwo = await processor.ProcessAsync(new ClientMessage
+        {
+            ProtocolVersion = 1,
+            ProfileUpdate = new ProfileUpdateRequest
+            {
+                Token = second.AuthSuccess!.AccessToken,
+                DisplayName = "User Two",
+                Username = "WallDev123"
+            }
+        });
+
+        Assert.NotNull(updateTwo.Error);
+        Assert.Equal("USERNAME_TAKEN", updateTwo.Error!.Code);
+    }
+
     private static TcpMessageProcessor BuildProcessor()
     {
         var mnemonicService = new MnemonicService();
@@ -108,7 +174,7 @@ public sealed class TcpProtocolTests
         var jwtTokenService = new JwtTokenService(jwtOptions);
         var authService = new AuthService(mnemonicService, repo, jwtTokenService);
         var validationService = new JwtValidationService(jwtOptions);
-        return new TcpMessageProcessor(authService, validationService, NullLogger<TcpMessageProcessor>.Instance);
+        return new TcpMessageProcessor(authService, validationService, repo, NullLogger<TcpMessageProcessor>.Instance);
     }
 
     private sealed class InMemoryUserRepository : IUserRepository
@@ -126,7 +192,10 @@ public sealed class TcpProtocolTests
             {
                 Id = Guid.NewGuid(),
                 AccountKey = accountKey,
-                CreatedAt = DateTime.UtcNow
+                DisplayName = "WallDev",
+                Username = $"user_{accountKey[..8]}",
+                CreatedAt = DateTime.UtcNow,
+                LastSeenAt = DateTime.UtcNow
             };
             _users[accountKey] = created;
             return Task.FromResult(created);
@@ -136,6 +205,41 @@ public sealed class TcpProtocolTests
         {
             _users.TryGetValue(accountKey, out var user);
             return Task.FromResult(user);
+        }
+
+        public Task<UserRecord?> GetByUserIdAsync(Guid userId)
+        {
+            var user = _users.Values.FirstOrDefault(x => x.Id == userId);
+            return Task.FromResult(user);
+        }
+
+        public Task<UserRecord?> UpdateProfileAsync(Guid userId, string displayName, string username)
+        {
+            if (_users.Values.Any(u => u.Id != userId && string.Equals(u.Username, username, StringComparison.OrdinalIgnoreCase)))
+            {
+                return Task.FromResult<UserRecord?>(null);
+            }
+
+            var user = _users.Values.FirstOrDefault(x => x.Id == userId);
+            if (user is null)
+            {
+                return Task.FromResult<UserRecord?>(null);
+            }
+
+            user.DisplayName = displayName;
+            user.Username = username;
+            return Task.FromResult<UserRecord?>(user);
+        }
+
+        public Task TouchLastSeenAsync(Guid userId)
+        {
+            var user = _users.Values.FirstOrDefault(x => x.Id == userId);
+            if (user is not null)
+            {
+                user.LastSeenAt = DateTime.UtcNow;
+            }
+
+            return Task.CompletedTask;
         }
     }
 }

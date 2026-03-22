@@ -17,7 +17,7 @@ android {
         versionName = "1.0"
 
         testInstrumentationRunner = "androidx.test.runner.AndroidJUnitRunner"
-        buildConfigField("String", "TCP_HOST", "\"10.0.2.2\"")
+        buildConfigField("String", "TCP_HOST", "\"144.31.238.147\"")
         buildConfigField("int", "TCP_PORT", "58081")
     }
 
@@ -61,6 +61,7 @@ dependencies {
     implementation("androidx.compose.ui:ui")
     implementation("androidx.compose.ui:ui-tooling-preview")
     implementation("androidx.compose.material3:material3")
+    implementation("androidx.compose.material:material-icons-extended")
     implementation("androidx.navigation:navigation-compose:2.8.0")
 
     implementation("androidx.security:security-crypto:1.1.0-alpha06")

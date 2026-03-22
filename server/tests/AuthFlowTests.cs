@@ -74,7 +74,10 @@ public sealed class AuthFlowTests
             {
                 Id = Guid.NewGuid(),
                 AccountKey = accountKey,
-                CreatedAt = DateTime.UtcNow
+                DisplayName = "WallDev",
+                Username = $"user_{accountKey[..8]}",
+                CreatedAt = DateTime.UtcNow,
+                LastSeenAt = DateTime.UtcNow
             };
             _users[accountKey] = created;
             return Task.FromResult(created);
@@ -84,6 +87,41 @@ public sealed class AuthFlowTests
         {
             _users.TryGetValue(accountKey, out var user);
             return Task.FromResult(user);
+        }
+
+        public Task<UserRecord?> GetByUserIdAsync(Guid userId)
+        {
+            var user = _users.Values.FirstOrDefault(x => x.Id == userId);
+            return Task.FromResult(user);
+        }
+
+        public Task<UserRecord?> UpdateProfileAsync(Guid userId, string displayName, string username)
+        {
+            if (_users.Values.Any(u => u.Id != userId && string.Equals(u.Username, username, StringComparison.OrdinalIgnoreCase)))
+            {
+                return Task.FromResult<UserRecord?>(null);
+            }
+
+            var user = _users.Values.FirstOrDefault(x => x.Id == userId);
+            if (user is null)
+            {
+                return Task.FromResult<UserRecord?>(null);
+            }
+
+            user.DisplayName = displayName;
+            user.Username = username;
+            return Task.FromResult<UserRecord?>(user);
+        }
+
+        public Task TouchLastSeenAsync(Guid userId)
+        {
+            var user = _users.Values.FirstOrDefault(x => x.Id == userId);
+            if (user is not null)
+            {
+                user.LastSeenAt = DateTime.UtcNow;
+            }
+
+            return Task.CompletedTask;
         }
     }
 }
