@@ -1,5 +1,6 @@
 package com.mingle.app.data.repository
 
+import android.util.Log
 import com.mingle.app.data.mnemonic.MnemonicUtils
 import com.mingle.app.data.storage.SecureSessionStore
 import com.mingle.app.data.tcp.TcpAuthClient
@@ -21,6 +22,7 @@ class AuthRepository(
     private val tcpClient: TcpAuthClient,
     private val sessionStore: SecureSessionStore
 ) {
+    private val tag = "AuthRepository"
     suspend fun register(mnemonicInput: String): AuthResult {
         return authInternal(mnemonicInput, isRegister = true)
     }
@@ -37,12 +39,17 @@ class AuthRepository(
             when {
                 response.meSuccess != null -> true
                 response.error?.code == "UNAUTHORIZED" -> {
+                    Log.w(tag, "Session token unauthorized on /me via TCP.")
                     sessionStore.clear()
                     false
                 }
-                else -> false
+                else -> {
+                    Log.w(tag, "Unexpected /me response: $response")
+                    false
+                }
             }
-        } catch (_: Exception) {
+        } catch (ex: Exception) {
+            Log.e(tag, "TCP /me request failed", ex)
             false
         }
     }
@@ -76,13 +83,16 @@ class AuthRepository(
                     AuthResult.Success(success.userId)
                 }
                 response.error != null -> {
+                    Log.w(tag, "Auth server error: code=${response.error.code}, message=${response.error.message}")
                     AuthResult.Failure(mapServerErrorToRuMessage(response.error.code))
                 }
                 else -> {
+                    Log.w(tag, "Unexpected auth response without payload: $response")
                     AuthResult.Failure("Внутренняя ошибка сервера")
                 }
             }
-        } catch (_: Exception) {
+        } catch (ex: Exception) {
+            Log.e(tag, "TCP auth request failed", ex)
             AuthResult.Failure("Ошибка сети. Проверьте соединение")
         }
     }

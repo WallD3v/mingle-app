@@ -5,7 +5,8 @@ namespace Mingle.Server.Services;
 
 public sealed class TcpMessageProcessor(
     AuthService authService,
-    JwtValidationService jwtValidationService)
+    JwtValidationService jwtValidationService,
+    ILogger<TcpMessageProcessor> logger)
 {
     public const uint ProtocolVersion = 1;
 
@@ -74,14 +75,17 @@ public sealed class TcpMessageProcessor(
         }
         catch (InvalidMnemonicException)
         {
+            logger.LogInformation("Invalid mnemonic received in TCP request.");
             return Error("INVALID_MNEMONIC", "Mnemonic phrase is invalid.");
         }
         catch (UnauthorizedAccessException)
         {
+            logger.LogInformation("Unauthorized TCP auth attempt.");
             return Error("UNAUTHORIZED", "Account not found.");
         }
-        catch
+        catch (Exception ex)
         {
+            logger.LogError(ex, "Unhandled exception while processing TCP message.");
             return Error("SERVER_ERROR", "Unexpected error.");
         }
     }
