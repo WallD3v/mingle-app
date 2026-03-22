@@ -10,6 +10,7 @@ public interface IUserRepository
     Task<UserRecord?> GetByUserIdAsync(Guid userId);
     Task<UserRecord?> UpdateProfileAsync(Guid userId, string displayName, string username);
     Task TouchLastSeenAsync(Guid userId);
+    Task<IReadOnlyList<UserRecord>> SearchByUsernameAsync(Guid requesterUserId, string query, int limit);
 }
 
 public sealed class UserRepository(NpgsqlDataSource dataSource) : IUserRepository
@@ -109,5 +110,38 @@ public sealed class UserRepository(NpgsqlDataSource dataSource) : IUserRepositor
 
         await using var connection = await dataSource.OpenConnectionAsync();
         await connection.ExecuteAsync(sql, new { UserId = userId });
+    }
+
+    public async Task<IReadOnlyList<UserRecord>> SearchByUsernameAsync(Guid requesterUserId, string query, int limit)
+    {
+        const string sql = """
+            SELECT id,
+                   account_key AS AccountKey,
+                   display_name AS DisplayName,
+                   username AS Username,
+                   created_at AS CreatedAt,
+                   last_seen_at AS LastSeenAt
+            FROM users
+            WHERE id <> @RequesterUserId
+              AND username ILIKE @Pattern
+            ORDER BY username ASC
+            LIMIT @Limit;
+            """;
+
+        var normalizedQuery = query.Trim();
+        if (normalizedQuery.Length == 0)
+        {
+            return Array.Empty<UserRecord>();
+        }
+
+        await using var connection = await dataSource.OpenConnectionAsync();
+        var rows = await connection.QueryAsync<UserRecord>(sql, new
+        {
+            RequesterUserId = requesterUserId,
+            Pattern = $"%{normalizedQuery}%",
+            Limit = Math.Clamp(limit, 1, 50)
+        });
+
+        return rows.ToList();
     }
 }

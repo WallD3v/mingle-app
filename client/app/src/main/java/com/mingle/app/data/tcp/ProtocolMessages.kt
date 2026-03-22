@@ -13,7 +13,8 @@ data class ClientMessage(
     @ProtoNumber(4) val me: MeRequest? = null,
     @ProtoNumber(5) val ping: PingRequest? = null,
     @ProtoNumber(6) val profileGet: ProfileGetRequest? = null,
-    @ProtoNumber(7) val profileUpdate: ProfileUpdateRequest? = null
+    @ProtoNumber(7) val profileUpdate: ProfileUpdateRequest? = null,
+    @ProtoNumber(8) val userSearch: UserSearchRequest? = null
 )
 
 @Serializable
@@ -24,7 +25,8 @@ data class ServerMessage(
     @ProtoNumber(4) val error: ErrorMessage? = null,
     @ProtoNumber(5) val pong: PongMessage? = null,
     @ProtoNumber(6) val profileData: ProfileData? = null,
-    @ProtoNumber(7) val profileUpdated: ProfileData? = null
+    @ProtoNumber(7) val profileUpdated: ProfileData? = null,
+    @ProtoNumber(8) val userSearchResults: UserSearchResults? = null
 )
 
 @Serializable
@@ -55,6 +57,12 @@ data class ProfileUpdateRequest(
 )
 
 @Serializable
+data class UserSearchRequest(
+    @ProtoNumber(1) val token: String,
+    @ProtoNumber(2) val query: String
+)
+
+@Serializable
 data class AuthSuccess(
     @ProtoNumber(1) val accessToken: String,
     @ProtoNumber(2) val userId: String
@@ -82,6 +90,19 @@ data class ProfileData(
     @ProtoNumber(2) val displayName: String,
     @ProtoNumber(3) val username: String,
     @ProtoNumber(4) val lastSeenAtUnixMs: Long
+)
+
+@Serializable
+data class UserSearchResultItem(
+    @ProtoNumber(1) val userId: String,
+    @ProtoNumber(2) val displayName: String,
+    @ProtoNumber(3) val username: String,
+    @ProtoNumber(4) val lastSeenAtUnixMs: Long
+)
+
+@Serializable
+data class UserSearchResults(
+    @ProtoNumber(1) val items: List<UserSearchResultItem> = emptyList()
 )
 
 const val PROTOCOL_VERSION = 1

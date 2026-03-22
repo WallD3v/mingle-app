@@ -48,6 +48,22 @@ message ProfileData {
   int64 last_seen_at_unix_ms = 4;
 }
 
+message UserSearchRequest {
+  string token = 1;
+  string query = 2;
+}
+
+message UserSearchResultItem {
+  string user_id = 1;
+  string display_name = 2;
+  string username = 3;
+  int64 last_seen_at_unix_ms = 4;
+}
+
+message UserSearchResults {
+  repeated UserSearchResultItem items = 1;
+}
+
 message ClientMessage {
   uint32 protocol_version = 1;
   oneof payload {
@@ -57,6 +73,7 @@ message ClientMessage {
     PingRequest ping = 5;
     ProfileGetRequest profile_get = 6;
     ProfileUpdateRequest profile_update = 7;
+    UserSearchRequest user_search = 8;
   }
 }
 
@@ -69,5 +86,6 @@ message ServerMessage {
     Pong pong = 5;
     ProfileData profile_data = 6;
     ProfileData profile_updated = 7;
+    UserSearchResults user_search_results = 8;
   }
 }

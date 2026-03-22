@@ -49,6 +49,17 @@ class TcpAuthClient(
         )
     }
 
+    suspend fun searchUsers(token: String, query: String): ServerMessage {
+        return send(
+            ClientMessage(
+                userSearch = UserSearchRequest(
+                    token = token,
+                    query = query
+                )
+            )
+        )
+    }
+
     suspend fun close() {
         mutex.withLock {
             socket?.close()

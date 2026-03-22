@@ -123,5 +123,15 @@ public sealed class AuthFlowTests
 
             return Task.CompletedTask;
         }
+
+        public Task<IReadOnlyList<UserRecord>> SearchByUsernameAsync(Guid requesterUserId, string query, int limit)
+        {
+            var results = _users.Values
+                .Where(u => u.Id != requesterUserId && u.Username.Contains(query, StringComparison.OrdinalIgnoreCase))
+                .OrderBy(u => u.Username)
+                .Take(Math.Clamp(limit, 1, 50))
+                .ToList();
+            return Task.FromResult<IReadOnlyList<UserRecord>>(results);
+        }
     }
 }

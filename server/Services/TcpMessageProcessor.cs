@@ -140,6 +140,35 @@ public sealed class TcpMessageProcessor(
                 };
             }
 
+            if (message.UserSearch is not null)
+            {
+                var searchUserId = jwtValidationService.ValidateAndGetUserId(message.UserSearch.Token);
+                if (!Guid.TryParse(searchUserId, out var userId))
+                {
+                    return Error("UNAUTHORIZED", "Token is invalid.");
+                }
+
+                var query = message.UserSearch.Query.Trim();
+                if (query.Length == 0)
+                {
+                    return new ServerMessage
+                    {
+                        ProtocolVersion = ProtocolVersion,
+                        UserSearchResults = new UserSearchResults()
+                    };
+                }
+
+                var results = await userRepository.SearchByUsernameAsync(userId, query, limit: 20);
+                return new ServerMessage
+                {
+                    ProtocolVersion = ProtocolVersion,
+                    UserSearchResults = new UserSearchResults
+                    {
+                        Items = results.Select(ToSearchItem).ToList()
+                    }
+                };
+            }
+
             return Error("SERVER_ERROR", "Empty payload.");
         }
         catch (InvalidMnemonicException)
@@ -198,6 +227,17 @@ public sealed class TcpMessageProcessor(
             DisplayName = profile.DisplayName,
             Username = profile.Username,
             LastSeenAtUnixMs = new DateTimeOffset(profile.LastSeenAt).ToUnixTimeMilliseconds()
+        };
+    }
+
+    private static UserSearchResultItem ToSearchItem(UserRecord user)
+    {
+        return new UserSearchResultItem
+        {
+            UserId = user.Id.ToString(),
+            DisplayName = user.DisplayName,
+            Username = user.Username,
+            LastSeenAtUnixMs = new DateTimeOffset(user.LastSeenAt).ToUnixTimeMilliseconds()
         };
     }
 }

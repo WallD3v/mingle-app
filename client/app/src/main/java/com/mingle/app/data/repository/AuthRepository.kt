@@ -17,9 +17,21 @@ data class ProfileModel(
     val lastSeenAtUnixMs: Long
 )
 
+data class UserSearchModel(
+    val userId: String,
+    val displayName: String,
+    val username: String,
+    val lastSeenAtUnixMs: Long
+)
+
 sealed class ProfileResult {
     data class Success(val profile: ProfileModel) : ProfileResult()
     data class Failure(val message: String) : ProfileResult()
+}
+
+sealed class UserSearchResult {
+    data class Success(val items: List<UserSearchModel>) : UserSearchResult()
+    data class Failure(val message: String) : UserSearchResult()
 }
 
 internal fun mapServerErrorToRuMessage(errorCode: String?): String {
@@ -128,6 +140,36 @@ class AuthRepository(
         } catch (ex: Exception) {
             Log.e(tag, "TCP updateProfile failed", ex)
             ProfileResult.Failure("Ошибка сети. Проверьте соединение")
+        }
+    }
+
+    suspend fun searchUsersByUsername(query: String): UserSearchResult {
+        val token = sessionStore.getToken() ?: return UserSearchResult.Failure("Нужна авторизация")
+        val normalized = query.trim()
+        if (normalized.isEmpty()) {
+            return UserSearchResult.Success(emptyList())
+        }
+
+        return try {
+            val response = tcpClient.searchUsers(token = token, query = normalized)
+            when {
+                response.userSearchResults != null -> {
+                    val items = response.userSearchResults.items.map {
+                        UserSearchModel(
+                            userId = it.userId,
+                            displayName = it.displayName,
+                            username = it.username,
+                            lastSeenAtUnixMs = it.lastSeenAtUnixMs
+                        )
+                    }
+                    UserSearchResult.Success(items)
+                }
+                response.error != null -> UserSearchResult.Failure(mapServerErrorToRuMessage(response.error.code))
+                else -> UserSearchResult.Failure("Внутренняя ошибка сервера")
+            }
+        } catch (ex: Exception) {
+            Log.e(tag, "TCP user search failed", ex)
+            UserSearchResult.Failure("Ошибка сети. Проверьте соединение")
         }
     }
 

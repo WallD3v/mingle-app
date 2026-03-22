@@ -12,6 +12,7 @@ public sealed class ClientMessage
     [ProtoMember(5)] public PingRequest? Ping { get; set; }
     [ProtoMember(6)] public ProfileGetRequest? ProfileGet { get; set; }
     [ProtoMember(7)] public ProfileUpdateRequest? ProfileUpdate { get; set; }
+    [ProtoMember(8)] public UserSearchRequest? UserSearch { get; set; }
 }
 
 [ProtoContract]
@@ -24,6 +25,7 @@ public sealed class ServerMessage
     [ProtoMember(5)] public PongResponse? Pong { get; set; }
     [ProtoMember(6)] public ProfileData? ProfileData { get; set; }
     [ProtoMember(7)] public ProfileData? ProfileUpdated { get; set; }
+    [ProtoMember(8)] public UserSearchResults? UserSearchResults { get; set; }
 }
 
 [ProtoContract]
@@ -91,4 +93,26 @@ public sealed class ProfileData
     [ProtoMember(2)] public string DisplayName { get; set; } = string.Empty;
     [ProtoMember(3)] public string Username { get; set; } = string.Empty;
     [ProtoMember(4)] public long LastSeenAtUnixMs { get; set; }
+}
+
+[ProtoContract]
+public sealed class UserSearchRequest
+{
+    [ProtoMember(1)] public string Token { get; set; } = string.Empty;
+    [ProtoMember(2)] public string Query { get; set; } = string.Empty;
+}
+
+[ProtoContract]
+public sealed class UserSearchResultItem
+{
+    [ProtoMember(1)] public string UserId { get; set; } = string.Empty;
+    [ProtoMember(2)] public string DisplayName { get; set; } = string.Empty;
+    [ProtoMember(3)] public string Username { get; set; } = string.Empty;
+    [ProtoMember(4)] public long LastSeenAtUnixMs { get; set; }
+}
+
+[ProtoContract]
+public sealed class UserSearchResults
+{
+    [ProtoMember(1)] public List<UserSearchResultItem> Items { get; set; } = new();
 }

@@ -5,11 +5,15 @@ import androidx.compose.foundation.layout.Box
 import androidx.compose.foundation.layout.Column
 import androidx.compose.foundation.layout.Row
 import androidx.compose.foundation.layout.Spacer
+import androidx.compose.foundation.clickable
 import androidx.compose.foundation.layout.fillMaxSize
 import androidx.compose.foundation.layout.fillMaxWidth
 import androidx.compose.foundation.layout.height
 import androidx.compose.foundation.layout.padding
 import androidx.compose.foundation.layout.size
+import androidx.compose.foundation.layout.width
+import androidx.compose.foundation.lazy.LazyColumn
+import androidx.compose.foundation.lazy.items
 import androidx.compose.foundation.rememberScrollState
 import androidx.compose.foundation.text.KeyboardOptions
 import androidx.compose.foundation.verticalScroll
@@ -62,8 +66,10 @@ import androidx.compose.material3.TextButton
 import androidx.compose.ui.window.Popup
 import com.mingle.app.data.repository.AuthRepository
 import com.mingle.app.data.repository.AuthResult
+import com.mingle.app.data.repository.UserSearchModel
 import com.mingle.app.data.storage.SecureSessionStore
 import com.mingle.app.data.tcp.TcpAuthClient
+import kotlinx.coroutines.delay
 import kotlinx.coroutines.launch
 
 private enum class Screen {
@@ -390,9 +396,44 @@ private fun MnemonicAuthScreen(
 @Composable
 private fun HomeScreen(repository: AuthRepository) {
     var selectedTab by remember { mutableStateOf(HomeTab.CHATS) }
+    var openedChatUser by remember { mutableStateOf<UserSearchModel?>(null) }
     var isSearchOpen by rememberSaveable { mutableStateOf(false) }
     var searchQuery by rememberSaveable { mutableStateOf("") }
+    var isSearching by rememberSaveable { mutableStateOf(false) }
+    var searchError by rememberSaveable { mutableStateOf<String?>(null) }
+    var searchResults by remember { mutableStateOf<List<UserSearchModel>>(emptyList()) }
     val palette = rememberHomePalette()
+
+    LaunchedEffect(isSearchOpen, searchQuery) {
+        if (!isSearchOpen) {
+            isSearching = false
+            searchError = null
+            searchResults = emptyList()
+            return@LaunchedEffect
+        }
+
+        val query = searchQuery.trim()
+        if (query.isEmpty()) {
+            isSearching = false
+            searchError = null
+            searchResults = emptyList()
+            return@LaunchedEffect
+        }
+
+        delay(250)
+        isSearching = true
+        when (val result = repository.searchUsersByUsername(query)) {
+            is com.mingle.app.data.repository.UserSearchResult.Success -> {
+                searchResults = result.items
+                searchError = null
+            }
+            is com.mingle.app.data.repository.UserSearchResult.Failure -> {
+                searchResults = emptyList()
+                searchError = result.message
+            }
+        }
+        isSearching = false
+    }
 
     Scaffold { padding ->
         Box(
@@ -405,19 +446,39 @@ private fun HomeScreen(repository: AuthRepository) {
             Column(modifier = Modifier.fillMaxSize()) {
                 when (selectedTab) {
                     HomeTab.CHATS -> {
-                        TopHeader(
-                            palette = palette,
-                            isSearchOpen = isSearchOpen,
-                            searchQuery = searchQuery,
-                            onSearchQueryChange = { searchQuery = it },
-                            onSearchClick = { isSearchOpen = true },
-                            onSearchClose = {
-                                isSearchOpen = false
-                                searchQuery = ""
-                            }
-                        )
-                        Spacer(modifier = Modifier.height(10.dp))
-                        EmptyChats(palette)
+                        if (openedChatUser != null) {
+                            ChatStubScreen(
+                                palette = palette,
+                                user = openedChatUser!!,
+                                onBack = { openedChatUser = null }
+                            )
+                        } else {
+                            TopHeader(
+                                palette = palette,
+                                isSearchOpen = isSearchOpen,
+                                searchQuery = searchQuery,
+                                onSearchQueryChange = { searchQuery = it },
+                                onSearchClick = { isSearchOpen = true },
+                                onSearchClose = {
+                                    isSearchOpen = false
+                                    searchQuery = ""
+                                }
+                            )
+                            Spacer(modifier = Modifier.height(10.dp))
+                            EmptyChats(
+                                palette = palette,
+                                isSearchOpen = isSearchOpen,
+                                query = searchQuery,
+                                isSearching = isSearching,
+                                errorMessage = searchError,
+                                results = searchResults,
+                                onUserClick = { user ->
+                                    openedChatUser = user
+                                    isSearchOpen = false
+                                    searchQuery = ""
+                                }
+                            )
+                        }
                     }
                     HomeTab.PROFILE -> {
                         ProfileScreen(palette, repository)
@@ -425,13 +486,20 @@ private fun HomeScreen(repository: AuthRepository) {
                 }
             }
 
-            if (!isSearchOpen) {
+            if (!isSearchOpen && openedChatUser == null) {
                 BottomCapsule(
                     modifier = Modifier
                         .align(Alignment.BottomCenter)
                         .padding(bottom = 16.dp),
                     selectedTab = selectedTab,
-                    onSelectTab = { selectedTab = it },
+                    onSelectTab = {
+                        selectedTab = it
+                        if (it != HomeTab.CHATS) {
+                            openedChatUser = null
+                            isSearchOpen = false
+                            searchQuery = ""
+                        }
+                    },
                     palette = palette
                 )
             }
@@ -515,15 +583,170 @@ private fun TopHeader(
 }
 
 @Composable
-private fun EmptyChats(palette: HomePalette) {
-    Box(
+private fun EmptyChats(
+    palette: HomePalette,
+    isSearchOpen: Boolean,
+    query: String,
+    isSearching: Boolean,
+    errorMessage: String?,
+    results: List<UserSearchModel>,
+    onUserClick: (UserSearchModel) -> Unit
+) {
+    if (!isSearchOpen || query.trim().isEmpty()) {
+        Box(
+            modifier = Modifier
+                .fillMaxSize()
+                .padding(bottom = 84.dp),
+            contentAlignment = Alignment.Center
+        ) {
+            Text(
+                text = "Чатов пока нет",
+                color = palette.secondaryText,
+                style = MaterialTheme.typography.bodyLarge
+            )
+        }
+        return
+    }
+
+    if (isSearching) {
+        Box(
+            modifier = Modifier
+                .fillMaxSize()
+                .padding(bottom = 84.dp),
+            contentAlignment = Alignment.Center
+        ) {
+            CircularProgressIndicator()
+        }
+        return
+    }
+
+    errorMessage?.let {
+        Box(
+            modifier = Modifier
+                .fillMaxSize()
+                .padding(bottom = 84.dp),
+            contentAlignment = Alignment.Center
+        ) {
+            Text(
+                text = it,
+                color = MaterialTheme.colorScheme.error,
+                style = MaterialTheme.typography.bodyMedium
+            )
+        }
+        return
+    }
+
+    if (results.isEmpty()) {
+        Box(
+            modifier = Modifier
+                .fillMaxSize()
+                .padding(bottom = 84.dp),
+            contentAlignment = Alignment.Center
+        ) {
+            Text(
+                text = "Ничего не найдено",
+                color = palette.secondaryText,
+                style = MaterialTheme.typography.bodyLarge
+            )
+        }
+        return
+    }
+
+    LazyColumn(
         modifier = Modifier
             .fillMaxSize()
             .padding(bottom = 84.dp),
+        verticalArrangement = Arrangement.spacedBy(8.dp)
+    ) {
+        items(results) { user ->
+            Row(
+                modifier = Modifier
+                    .fillMaxWidth()
+                    .clip(RoundedCornerShape(12.dp))
+                    .background(palette.panelBackground)
+                    .clickable { onUserClick(user) }
+                    .padding(horizontal = 12.dp, vertical = 10.dp),
+                verticalAlignment = Alignment.CenterVertically
+            ) {
+                Box(
+                    modifier = Modifier
+                        .size(38.dp)
+                        .clip(CircleShape)
+                        .background(palette.chipBackground)
+                )
+                Spacer(modifier = Modifier.size(10.dp))
+                Column {
+                    Text(
+                        text = user.displayName,
+                        color = palette.primaryText,
+                        style = MaterialTheme.typography.bodyLarge,
+                        fontWeight = FontWeight.Medium
+                    )
+                    Text(
+                        text = "@${user.username}",
+                        color = palette.secondaryText,
+                        style = MaterialTheme.typography.bodySmall
+                    )
+                }
+            }
+        }
+    }
+}
+
+@Composable
+private fun ChatStubScreen(
+    palette: HomePalette,
+    user: UserSearchModel,
+    onBack: () -> Unit
+) {
+    Row(
+        modifier = Modifier
+            .fillMaxWidth()
+            .clip(RoundedCornerShape(14.dp))
+            .background(palette.panelBackground)
+            .padding(horizontal = 12.dp, vertical = 10.dp),
+        verticalAlignment = Alignment.CenterVertically
+    ) {
+        IconButton(
+            onClick = onBack,
+            modifier = Modifier
+                .size(width = 44.dp, height = 30.dp)
+                .clip(RoundedCornerShape(8.dp))
+                .background(palette.chipBackground)
+        ) {
+            Icon(
+                imageVector = Icons.Filled.ArrowBack,
+                contentDescription = "Back to chats",
+                tint = palette.primaryText,
+                modifier = Modifier.size(18.dp)
+            )
+        }
+        Spacer(modifier = Modifier.width(10.dp))
+        Column {
+            Text(
+                text = user.displayName,
+                color = palette.primaryText,
+                style = MaterialTheme.typography.titleMedium,
+                fontWeight = FontWeight.Medium
+            )
+            Text(
+                text = "@${user.username}",
+                color = palette.secondaryText,
+                style = MaterialTheme.typography.bodySmall
+            )
+        }
+    }
+
+    Spacer(modifier = Modifier.height(10.dp))
+
+    Box(
+        modifier = Modifier
+            .fillMaxSize()
+            .padding(bottom = 12.dp),
         contentAlignment = Alignment.Center
     ) {
         Text(
-            text = "Чатов пока нет",
+            text = "Диалог с @${user.username} в разработке",
             color = palette.secondaryText,
             style = MaterialTheme.typography.bodyLarge
         )

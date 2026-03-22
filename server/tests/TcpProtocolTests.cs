@@ -166,6 +166,50 @@ public sealed class TcpProtocolTests
         Assert.Equal("USERNAME_TAKEN", updateTwo.Error!.Code);
     }
 
+    [Fact]
+    public async Task Processor_UserSearch_ReturnsMatchingUsernames()
+    {
+        var processor = BuildProcessor();
+        var secondMnemonic = "abandon abandon abandon abandon abandon abandon abandon abandon abandon abandon abandon abandon abandon abandon abandon abandon abandon abandon abandon abandon abandon abandon ability able";
+
+        var first = await processor.ProcessAsync(new ClientMessage
+        {
+            ProtocolVersion = 1,
+            Register = new AuthRequest { Mnemonic = ValidMnemonic }
+        });
+
+        var second = await processor.ProcessAsync(new ClientMessage
+        {
+            ProtocolVersion = 1,
+            Register = new AuthRequest { Mnemonic = secondMnemonic }
+        });
+
+        await processor.ProcessAsync(new ClientMessage
+        {
+            ProtocolVersion = 1,
+            ProfileUpdate = new ProfileUpdateRequest
+            {
+                Token = second.AuthSuccess!.AccessToken,
+                DisplayName = "Second",
+                Username = "searchme1"
+            }
+        });
+
+        var search = await processor.ProcessAsync(new ClientMessage
+        {
+            ProtocolVersion = 1,
+            UserSearch = new UserSearchRequest
+            {
+                Token = first.AuthSuccess!.AccessToken,
+                Query = "search"
+            }
+        });
+
+        Assert.NotNull(search.UserSearchResults);
+        Assert.Single(search.UserSearchResults!.Items);
+        Assert.Equal("searchme1", search.UserSearchResults.Items[0].Username);
+    }
+
     private static TcpMessageProcessor BuildProcessor()
     {
         var mnemonicService = new MnemonicService();
@@ -240,6 +284,23 @@ public sealed class TcpProtocolTests
             }
 
             return Task.CompletedTask;
+        }
+
+        public Task<IReadOnlyList<UserRecord>> SearchByUsernameAsync(Guid requesterUserId, string query, int limit)
+        {
+            var normalized = query.Trim();
+            if (normalized.Length == 0)
+            {
+                return Task.FromResult<IReadOnlyList<UserRecord>>(Array.Empty<UserRecord>());
+            }
+
+            var results = _users.Values
+                .Where(u => u.Id != requesterUserId && u.Username.Contains(normalized, StringComparison.OrdinalIgnoreCase))
+                .OrderBy(u => u.Username)
+                .Take(Math.Clamp(limit, 1, 50))
+                .ToList();
+
+            return Task.FromResult<IReadOnlyList<UserRecord>>(results);
         }
     }
 }
