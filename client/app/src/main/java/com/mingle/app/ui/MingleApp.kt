@@ -14,6 +14,7 @@ import androidx.compose.foundation.layout.padding
 import androidx.compose.foundation.layout.size
 import androidx.compose.foundation.lazy.LazyColumn
 import androidx.compose.foundation.lazy.items
+import androidx.compose.foundation.lazy.rememberLazyListState
 import androidx.compose.foundation.rememberScrollState
 import androidx.compose.foundation.text.KeyboardOptions
 import androidx.compose.foundation.verticalScroll
@@ -38,6 +39,7 @@ import androidx.compose.material3.lightColorScheme
 import androidx.compose.runtime.Composable
 import androidx.compose.runtime.DisposableEffect
 import androidx.compose.runtime.LaunchedEffect
+import androidx.compose.runtime.derivedStateOf
 import androidx.compose.runtime.getValue
 import androidx.compose.runtime.mutableStateListOf
 import androidx.compose.runtime.mutableStateOf
@@ -401,6 +403,10 @@ private fun HomeScreen(repository: AuthRepository) {
     var selectedTab by remember { mutableStateOf(HomeTab.CHATS) }
     var openedChatUser by remember { mutableStateOf<UserSearchModel?>(null) }
     var openedChatMessages by remember { mutableStateOf<List<DialogMessageModel>>(emptyList()) }
+    var chatHasMoreBefore by rememberSaveable { mutableStateOf(false) }
+    var chatOldestLoadedUnixMs by rememberSaveable { mutableStateOf(0L) }
+    var isLoadingOlderMessages by rememberSaveable { mutableStateOf(false) }
+    var chatScrollToBottomSignal by rememberSaveable { mutableStateOf(0) }
     var isChatLoading by rememberSaveable { mutableStateOf(false) }
     var isMessageSending by rememberSaveable { mutableStateOf(false) }
     var chatError by rememberSaveable { mutableStateOf<String?>(null) }
@@ -423,11 +429,18 @@ private fun HomeScreen(repository: AuthRepository) {
     DisposableEffect(Unit) {
         repository.setIncomingMessageListener { incoming ->
             scope.launch {
+                val existing = dialogs.firstOrNull { it.peer.userId == incoming.from.userId }
+                val unreadCount = if (openedChatUser?.userId == incoming.from.userId) {
+                    0
+                } else {
+                    (existing?.unreadCount ?: 0) + 1
+                }
                 val updatedItem = DialogListItemModel(
-                    dialogId = if (incoming.message.dialogId.isBlank()) "" else incoming.message.dialogId,
+                    dialogId = if (incoming.message.dialogId.isBlank()) existing?.dialogId.orEmpty() else incoming.message.dialogId,
                     peer = incoming.from,
                     lastMessageText = incoming.message.text,
-                    lastMessageAtUnixMs = incoming.message.createdAtUnixMs
+                    lastMessageAtUnixMs = incoming.message.createdAtUnixMs,
+                    unreadCount = unreadCount
                 )
 
                 dialogs = buildList {
@@ -438,6 +451,7 @@ private fun HomeScreen(repository: AuthRepository) {
                 if (openedChatUser?.userId == incoming.from.userId &&
                     openedChatMessages.none { it.messageId == incoming.message.messageId }) {
                     openedChatMessages = openedChatMessages + incoming.message
+                    chatScrollToBottomSignal += 1
                 }
             }
         }
@@ -505,11 +519,14 @@ private fun HomeScreen(repository: AuthRepository) {
         val user = openedChatUser ?: return@LaunchedEffect
 
         isChatLoading = true
-        when (val result = repository.openDialog(user.userId)) {
+        when (val result = repository.openDialog(user.userId, limit = 40)) {
             is com.mingle.app.data.repository.DialogThreadResult.Success -> {
                 openedChatUser = result.thread.peer
                 openedChatMessages = result.thread.messages
+                chatHasMoreBefore = result.thread.hasMoreBefore
+                chatOldestLoadedUnixMs = result.thread.oldestLoadedUnixMs
                 chatError = null
+                dialogsReloadKey += 1
             }
             is com.mingle.app.data.repository.DialogThreadResult.Failure -> {
                 if (openedChatMessages.isEmpty()) {
@@ -540,6 +557,10 @@ private fun HomeScreen(repository: AuthRepository) {
                                 isSending = isMessageSending,
                                 errorMessage = chatError,
                                 messages = openedChatMessages,
+                                hasMoreBefore = chatHasMoreBefore,
+                                oldestLoadedUnixMs = chatOldestLoadedUnixMs,
+                                isLoadingOlder = isLoadingOlderMessages,
+                                scrollToBottomSignal = chatScrollToBottomSignal,
                                 onSendMessage = { text ->
                                     if (text.isBlank() || isMessageSending) {
                                         return@ChatScreen
@@ -552,12 +573,40 @@ private fun HomeScreen(repository: AuthRepository) {
                                                 openedChatMessages = openedChatMessages + result.message
                                                 chatError = null
                                                 dialogsReloadKey += 1
+                                                chatScrollToBottomSignal += 1
                                             }
                                             is com.mingle.app.data.repository.SendMessageResult.Failure -> {
                                                 chatError = result.message
                                             }
                                         }
                                         isMessageSending = false
+                                    }
+                                },
+                                onLoadOlder = {
+                                    if (isLoadingOlderMessages || !chatHasMoreBefore || chatOldestLoadedUnixMs <= 0L) {
+                                        return@ChatScreen
+                                    }
+
+                                    scope.launch {
+                                        isLoadingOlderMessages = true
+                                        when (val result = repository.openDialog(
+                                            peerUserId = openedChatUser!!.userId,
+                                            beforeUnixMs = chatOldestLoadedUnixMs,
+                                            limit = 40
+                                        )) {
+                                            is com.mingle.app.data.repository.DialogThreadResult.Success -> {
+                                                val existingIds = openedChatMessages.map { it.messageId }.toHashSet()
+                                                val older = result.thread.messages.filterNot { existingIds.contains(it.messageId) }
+                                                openedChatMessages = older + openedChatMessages
+                                                chatHasMoreBefore = result.thread.hasMoreBefore
+                                                chatOldestLoadedUnixMs = result.thread.oldestLoadedUnixMs
+                                                chatError = null
+                                            }
+                                            is com.mingle.app.data.repository.DialogThreadResult.Failure -> {
+                                                chatError = result.message
+                                            }
+                                        }
+                                        isLoadingOlderMessages = false
                                     }
                                 },
                                 onBack = { openedChatUser = null }
@@ -588,6 +637,9 @@ private fun HomeScreen(repository: AuthRepository) {
                                 onUserClick = { user ->
                                     openedChatUser = user
                                     openedChatMessages = emptyList()
+                                    chatHasMoreBefore = false
+                                    chatOldestLoadedUnixMs = 0L
+                                    isLoadingOlderMessages = false
                                     chatError = null
                                     isSearchOpen = false
                                     searchQuery = ""
@@ -778,7 +830,7 @@ private fun EmptyChats(
                             .background(palette.chipBackground)
                     )
                     Spacer(modifier = Modifier.size(10.dp))
-                    Column {
+                    Column(modifier = Modifier.weight(1f)) {
                         Text(
                             text = dialog.peer.displayName,
                             color = palette.primaryText,
@@ -790,6 +842,22 @@ private fun EmptyChats(
                             color = palette.secondaryText,
                             style = MaterialTheme.typography.bodySmall
                         )
+                    }
+
+                    if (dialog.unreadCount > 0) {
+                        Box(
+                            modifier = Modifier
+                                .clip(CircleShape)
+                                .background(palette.selectedTabBackground)
+                                .padding(horizontal = 8.dp, vertical = 4.dp)
+                        ) {
+                            Text(
+                                text = dialog.unreadCount.toString(),
+                                color = palette.primaryText,
+                                style = MaterialTheme.typography.labelSmall,
+                                fontWeight = FontWeight.SemiBold
+                            )
+                        }
                     }
                 }
             }
@@ -907,10 +975,26 @@ private fun ChatScreen(
     isSending: Boolean,
     errorMessage: String?,
     messages: List<DialogMessageModel>,
+    hasMoreBefore: Boolean,
+    oldestLoadedUnixMs: Long,
+    isLoadingOlder: Boolean,
+    scrollToBottomSignal: Int,
     onSendMessage: (String) -> Unit,
+    onLoadOlder: () -> Unit,
     onBack: () -> Unit
 ) {
     var draftMessage by rememberSaveable(user.userId) { mutableStateOf("") }
+    val listState = rememberLazyListState()
+    var initialScrollDone by rememberSaveable(user.userId) { mutableStateOf(false) }
+    val shouldLoadOlder by derivedStateOf {
+        hasMoreBefore &&
+            !isLoading &&
+            !isLoadingOlder &&
+            oldestLoadedUnixMs > 0L &&
+            messages.isNotEmpty() &&
+            listState.firstVisibleItemIndex == 0 &&
+            listState.firstVisibleItemScrollOffset == 0
+    }
 
     Column(modifier = Modifier.fillMaxSize()) {
         Row(
@@ -969,6 +1053,7 @@ private fun ChatScreen(
                 else -> {
                     LazyColumn(
                         modifier = Modifier.fillMaxSize(),
+                        state = listState,
                         verticalArrangement = Arrangement.spacedBy(6.dp)
                     ) {
                         items(messages) { message ->
@@ -993,6 +1078,25 @@ private fun ChatScreen(
                         }
                     }
                 }
+            }
+        }
+
+        LaunchedEffect(isLoading, messages.size, user.userId) {
+            if (!isLoading && messages.isNotEmpty() && !initialScrollDone) {
+                listState.scrollToItem(messages.lastIndex)
+                initialScrollDone = true
+            }
+        }
+
+        LaunchedEffect(scrollToBottomSignal) {
+            if (initialScrollDone && messages.isNotEmpty()) {
+                listState.animateScrollToItem(messages.lastIndex)
+            }
+        }
+
+        LaunchedEffect(shouldLoadOlder) {
+            if (shouldLoadOlder) {
+                onLoadOlder()
             }
         }
 

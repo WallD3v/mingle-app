@@ -9,6 +9,7 @@ public sealed class DialogListItemRecord
     public DateTime PeerLastSeenAt { get; set; }
     public string LastMessageText { get; set; } = string.Empty;
     public DateTime LastMessageAt { get; set; }
+    public int UnreadCount { get; set; }
 }
 
 public sealed class DialogMessageRecord
@@ -28,5 +29,6 @@ public sealed class DialogThreadRecord
     public string PeerUsername { get; set; } = string.Empty;
     public DateTime PeerLastSeenAt { get; set; }
     public IReadOnlyList<DialogMessageRecord> Messages { get; set; } = Array.Empty<DialogMessageRecord>();
+    public bool HasMoreBefore { get; set; }
+    public long OldestLoadedUnixMs { get; set; }
 }
-

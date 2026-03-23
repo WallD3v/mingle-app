@@ -6,7 +6,7 @@ namespace Mingle.Server.Data;
 public interface IDialogRepository
 {
     Task<IReadOnlyList<DialogListItemRecord>> GetDialogsAsync(Guid userId, int limit);
-    Task<DialogThreadRecord?> GetDialogAsync(Guid userId, Guid peerUserId, int limit);
+    Task<DialogThreadRecord?> GetDialogAsync(Guid userId, Guid peerUserId, int limit, long? beforeUnixMs = null);
     Task<(DialogMessageRecord Message, DialogThreadRecord Thread)?> SendMessageAsync(Guid senderUserId, Guid peerUserId, string text, int historyLimit);
 }
 
@@ -22,7 +22,8 @@ public sealed class DialogRepository(NpgsqlDataSource dataSource) : IDialogRepos
                 CASE WHEN d.user_a_id = @UserId THEN u_b.username ELSE u_a.username END AS PeerUsername,
                 CASE WHEN d.user_a_id = @UserId THEN u_b.last_seen_at ELSE u_a.last_seen_at END AS PeerLastSeenAt,
                 COALESCE(m.body, '') AS LastMessageText,
-                d.last_message_at AS LastMessageAt
+                d.last_message_at AS LastMessageAt,
+                COALESCE(unread.unread_count, 0) AS UnreadCount
             FROM dialogs d
             JOIN users u_a ON u_a.id = d.user_a_id
             JOIN users u_b ON u_b.id = d.user_b_id
@@ -33,6 +34,13 @@ public sealed class DialogRepository(NpgsqlDataSource dataSource) : IDialogRepos
                 ORDER BY created_at DESC
                 LIMIT 1
             ) m ON TRUE
+            LEFT JOIN LATERAL (
+                SELECT COUNT(*)::int AS unread_count
+                FROM messages um
+                WHERE um.dialog_id = d.id
+                  AND um.sender_user_id <> @UserId
+                  AND um.read_by_recipient_at IS NULL
+            ) unread ON TRUE
             WHERE d.user_a_id = @UserId OR d.user_b_id = @UserId
             ORDER BY d.last_message_at DESC
             LIMIT @Limit;
@@ -47,10 +55,10 @@ public sealed class DialogRepository(NpgsqlDataSource dataSource) : IDialogRepos
         return rows.ToList();
     }
 
-    public async Task<DialogThreadRecord?> GetDialogAsync(Guid userId, Guid peerUserId, int limit)
+    public async Task<DialogThreadRecord?> GetDialogAsync(Guid userId, Guid peerUserId, int limit, long? beforeUnixMs = null)
     {
         await using var connection = await dataSource.OpenConnectionAsync();
-        return await GetDialogInternalAsync(connection, userId, peerUserId, limit, null);
+        return await GetDialogInternalAsync(connection, userId, peerUserId, limit, beforeUnixMs, null);
     }
 
     public async Task<(DialogMessageRecord Message, DialogThreadRecord Thread)?> SendMessageAsync(Guid senderUserId, Guid peerUserId, string text, int historyLimit)
@@ -107,7 +115,7 @@ public sealed class DialogRepository(NpgsqlDataSource dataSource) : IDialogRepos
 
         await transaction.CommitAsync();
 
-        var thread = await GetDialogInternalAsync(connection, senderUserId, peerUserId, historyLimit, null);
+        var thread = await GetDialogInternalAsync(connection, senderUserId, peerUserId, historyLimit, null, null);
         if (thread is null)
         {
             return null;
@@ -121,6 +129,7 @@ public sealed class DialogRepository(NpgsqlDataSource dataSource) : IDialogRepos
         Guid userId,
         Guid peerUserId,
         int limit,
+        long? beforeUnixMs,
         NpgsqlTransaction? transaction)
     {
         var peer = await GetPeerAsync(connection, peerUserId, transaction);
@@ -152,9 +161,20 @@ public sealed class DialogRepository(NpgsqlDataSource dataSource) : IDialogRepos
                 PeerDisplayName = peer.PeerDisplayName,
                 PeerUsername = peer.PeerUsername,
                 PeerLastSeenAt = peer.PeerLastSeenAt,
-                Messages = Array.Empty<DialogMessageRecord>()
+                Messages = Array.Empty<DialogMessageRecord>(),
+                HasMoreBefore = false,
+                OldestLoadedUnixMs = 0
             };
         }
+
+        const string markReadSql = """
+            UPDATE messages
+            SET read_by_recipient_at = NOW()
+            WHERE dialog_id = @DialogId
+              AND sender_user_id <> @UserId
+              AND read_by_recipient_at IS NULL;
+            """;
+        await connection.ExecuteAsync(markReadSql, new { DialogId = dialogId.Value, UserId = userId }, transaction);
 
         const string messagesSql = """
             SELECT id AS MessageId,
@@ -164,15 +184,29 @@ public sealed class DialogRepository(NpgsqlDataSource dataSource) : IDialogRepos
                    created_at AS CreatedAt
             FROM messages
             WHERE dialog_id = @DialogId
-            ORDER BY created_at ASC
-            LIMIT @Limit;
+              AND (@BeforeUnixMs IS NULL OR created_at < to_timestamp(@BeforeUnixMs / 1000.0))
+            ORDER BY created_at DESC
+            LIMIT @FetchLimit;
             """;
 
-        var messages = await connection.QueryAsync<DialogMessageRecord>(messagesSql, new
+        var effectiveLimit = Math.Clamp(limit, 1, 200);
+        var fetched = (await connection.QueryAsync<DialogMessageRecord>(messagesSql, new
         {
             DialogId = dialogId.Value,
-            Limit = Math.Clamp(limit, 1, 500)
-        }, transaction);
+            BeforeUnixMs = beforeUnixMs,
+            FetchLimit = effectiveLimit + 1
+        }, transaction)).ToList();
+
+        var hasMoreBefore = fetched.Count > effectiveLimit;
+        if (hasMoreBefore)
+        {
+            fetched.RemoveAt(fetched.Count - 1);
+        }
+
+        fetched.Reverse();
+        var oldestLoadedUnixMs = fetched.Count == 0
+            ? 0
+            : new DateTimeOffset(fetched[0].CreatedAt).ToUnixTimeMilliseconds();
 
         return new DialogThreadRecord
         {
@@ -181,7 +215,9 @@ public sealed class DialogRepository(NpgsqlDataSource dataSource) : IDialogRepos
             PeerDisplayName = peer.PeerDisplayName,
             PeerUsername = peer.PeerUsername,
             PeerLastSeenAt = peer.PeerLastSeenAt,
-            Messages = messages.ToList()
+            Messages = fetched,
+            HasMoreBefore = hasMoreBefore,
+            OldestLoadedUnixMs = oldestLoadedUnixMs
         };
     }
 
@@ -208,4 +244,3 @@ public sealed class DialogRepository(NpgsqlDataSource dataSource) : IDialogRepos
         public DateTime PeerLastSeenAt { get; set; }
     }
 }
-

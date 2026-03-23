@@ -76,12 +76,14 @@ class TcpAuthClient(
         return send(ClientMessage(dialogsList = DialogsListRequest(token = token)))
     }
 
-    suspend fun openDialog(token: String, peerUserId: String): ServerMessage {
+    suspend fun openDialog(token: String, peerUserId: String, beforeUnixMs: Long = 0L, limit: Int = 0): ServerMessage {
         return send(
             ClientMessage(
                 dialogOpen = DialogOpenRequest(
                     token = token,
-                    peerUserId = peerUserId
+                    peerUserId = peerUserId,
+                    beforeUnixMs = beforeUnixMs,
+                    limit = limit
                 )
             )
         )
@@ -186,4 +188,3 @@ class TcpAuthClient(
         }
     }
 }
-

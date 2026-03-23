@@ -71,6 +71,8 @@ message DialogsListRequest {
 message DialogOpenRequest {
   string token = 1;
   string peer_user_id = 2;
+  int64 before_unix_ms = 3;
+  uint32 limit = 4;
 }
 
 message MessageSendRequest {
@@ -99,6 +101,7 @@ message DialogListItem {
   UserPreview peer = 2;
   string last_message_text = 3;
   int64 last_message_at_unix_ms = 4;
+  uint32 unread_count = 5;
 }
 
 message DialogsData {
@@ -109,6 +112,8 @@ message DialogData {
   string dialog_id = 1;
   UserPreview peer = 2;
   repeated DialogMessage messages = 3;
+  bool has_more_before = 4;
+  int64 oldest_loaded_unix_ms = 5;
 }
 
 message MessageSent {

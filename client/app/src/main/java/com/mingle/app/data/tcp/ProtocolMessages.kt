@@ -79,7 +79,9 @@ data class DialogsListRequest(
 @Serializable
 data class DialogOpenRequest(
     @ProtoNumber(1) val token: String,
-    @ProtoNumber(2) val peerUserId: String
+    @ProtoNumber(2) val peerUserId: String,
+    @ProtoNumber(3) val beforeUnixMs: Long = 0L,
+    @ProtoNumber(4) val limit: Int = 0
 )
 
 @Serializable
@@ -159,7 +161,8 @@ data class DialogListItem(
     @ProtoNumber(1) val dialogId: String,
     @ProtoNumber(2) val peer: UserPreview? = null,
     @ProtoNumber(3) val lastMessageText: String,
-    @ProtoNumber(4) val lastMessageAtUnixMs: Long
+    @ProtoNumber(4) val lastMessageAtUnixMs: Long,
+    @ProtoNumber(5) val unreadCount: Int = 0
 )
 
 @Serializable
@@ -171,7 +174,9 @@ data class DialogsData(
 data class DialogData(
     @ProtoNumber(1) val dialogId: String,
     @ProtoNumber(2) val peer: UserPreview? = null,
-    @ProtoNumber(3) val messages: List<DialogMessage> = emptyList()
+    @ProtoNumber(3) val messages: List<DialogMessage> = emptyList(),
+    @ProtoNumber(4) val hasMoreBefore: Boolean = false,
+    @ProtoNumber(5) val oldestLoadedUnixMs: Long = 0L
 )
 
 @Serializable

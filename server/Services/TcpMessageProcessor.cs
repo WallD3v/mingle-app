@@ -203,7 +203,9 @@ public sealed class TcpMessageProcessor(
                     return Error("USER_NOT_FOUND", "Peer user not found.");
                 }
 
-                var dialog = await dialogRepository.GetDialogAsync(userId, peerUserId, 200);
+                var requestedLimit = message.DialogOpen.Limit == 0 ? 40 : (int)message.DialogOpen.Limit;
+                long? beforeUnixMs = message.DialogOpen.BeforeUnixMs > 0 ? message.DialogOpen.BeforeUnixMs : null;
+                var dialog = await dialogRepository.GetDialogAsync(userId, peerUserId, requestedLimit, beforeUnixMs);
                 if (dialog is null)
                 {
                     return Error("USER_NOT_FOUND", "Peer user not found.");
@@ -369,7 +371,8 @@ public sealed class TcpMessageProcessor(
                 LastSeenAtUnixMs = new DateTimeOffset(item.PeerLastSeenAt).ToUnixTimeMilliseconds()
             },
             LastMessageText = item.LastMessageText,
-            LastMessageAtUnixMs = new DateTimeOffset(item.LastMessageAt).ToUnixTimeMilliseconds()
+            LastMessageAtUnixMs = new DateTimeOffset(item.LastMessageAt).ToUnixTimeMilliseconds(),
+            UnreadCount = (uint)Math.Max(0, item.UnreadCount)
         };
     }
 
@@ -379,7 +382,9 @@ public sealed class TcpMessageProcessor(
         {
             DialogId = thread.DialogId?.ToString() ?? string.Empty,
             Peer = ToUserPreview(thread),
-            Messages = thread.Messages.Select(ToDialogMessage).ToList()
+            Messages = thread.Messages.Select(ToDialogMessage).ToList(),
+            HasMoreBefore = thread.HasMoreBefore,
+            OldestLoadedUnixMs = thread.OldestLoadedUnixMs
         };
     }
 

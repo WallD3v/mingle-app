@@ -57,8 +57,11 @@ public static class DbInitializer
                 dialog_id UUID NOT NULL REFERENCES dialogs(id) ON DELETE CASCADE,
                 sender_user_id UUID NOT NULL REFERENCES users(id) ON DELETE CASCADE,
                 body TEXT NOT NULL,
-                created_at TIMESTAMPTZ NOT NULL DEFAULT NOW()
+                created_at TIMESTAMPTZ NOT NULL DEFAULT NOW(),
+                read_by_recipient_at TIMESTAMPTZ
             );
+
+            ALTER TABLE messages ADD COLUMN IF NOT EXISTS read_by_recipient_at TIMESTAMPTZ;
 
             CREATE INDEX IF NOT EXISTS messages_dialog_created_idx
             ON messages (dialog_id, created_at ASC);

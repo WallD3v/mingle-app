@@ -28,7 +28,8 @@ data class DialogListItemModel(
     val dialogId: String,
     val peer: UserSearchModel,
     val lastMessageText: String,
-    val lastMessageAtUnixMs: Long
+    val lastMessageAtUnixMs: Long,
+    val unreadCount: Int
 )
 
 data class DialogMessageModel(
@@ -42,7 +43,9 @@ data class DialogMessageModel(
 data class DialogThreadModel(
     val dialogId: String?,
     val peer: UserSearchModel,
-    val messages: List<DialogMessageModel>
+    val messages: List<DialogMessageModel>,
+    val hasMoreBefore: Boolean,
+    val oldestLoadedUnixMs: Long
 )
 
 data class IncomingMessageModel(
@@ -275,7 +278,8 @@ class AuthRepository(
                                 lastSeenAtUnixMs = peer.lastSeenAtUnixMs
                             ),
                             lastMessageText = item.lastMessageText,
-                            lastMessageAtUnixMs = item.lastMessageAtUnixMs
+                            lastMessageAtUnixMs = item.lastMessageAtUnixMs,
+                            unreadCount = item.unreadCount
                         )
                     }
                     DialogListResult.Success(items)
@@ -289,11 +293,16 @@ class AuthRepository(
         }
     }
 
-    suspend fun openDialog(peerUserId: String): DialogThreadResult {
+    suspend fun openDialog(peerUserId: String, beforeUnixMs: Long? = null, limit: Int = 40): DialogThreadResult {
         val token = sessionStore.getToken() ?: return DialogThreadResult.Failure("Нужна авторизация")
 
         return try {
-            val response = tcpClient.openDialog(token, peerUserId)
+            val response = tcpClient.openDialog(
+                token = token,
+                peerUserId = peerUserId,
+                beforeUnixMs = beforeUnixMs ?: 0L,
+                limit = limit
+            )
             when {
                 response.dialogData != null -> {
                     val peer = response.dialogData.peer
@@ -315,7 +324,9 @@ class AuthRepository(
                                     text = it.text,
                                     createdAtUnixMs = it.createdAtUnixMs
                                 )
-                            }
+                            },
+                            hasMoreBefore = response.dialogData.hasMoreBefore,
+                            oldestLoadedUnixMs = response.dialogData.oldestLoadedUnixMs
                         )
                     )
                 }

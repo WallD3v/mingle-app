@@ -403,7 +403,7 @@ public sealed class TcpProtocolTests
             return Task.FromResult<IReadOnlyList<DialogListItemRecord>>(items);
         }
 
-        public async Task<DialogThreadRecord?> GetDialogAsync(Guid userId, Guid peerUserId, int limit)
+        public async Task<DialogThreadRecord?> GetDialogAsync(Guid userId, Guid peerUserId, int limit, long? beforeUnixMs = null)
         {
             var peer = await userRepository.GetByUserIdAsync(peerUserId);
             if (peer is null)
@@ -413,9 +413,22 @@ public sealed class TcpProtocolTests
 
             var key = BuildKey(userId, peerUserId);
             _dialogIds.TryGetValue(key, out var dialogId);
-            var messages = dialogId != Guid.Empty && _messages.TryGetValue(dialogId, out var list)
-                ? list.Take(Math.Clamp(limit, 1, 500)).ToList()
-                : new List<DialogMessageRecord>();
+            var source = dialogId != Guid.Empty && _messages.TryGetValue(dialogId, out var list)
+                ? list.AsEnumerable()
+                : Enumerable.Empty<DialogMessageRecord>();
+
+            if (beforeUnixMs.HasValue && beforeUnixMs.Value > 0)
+            {
+                source = source.Where(m => new DateTimeOffset(m.CreatedAt).ToUnixTimeMilliseconds() < beforeUnixMs.Value);
+            }
+
+            var selected = source.OrderByDescending(m => m.CreatedAt).Take(Math.Clamp(limit, 1, 500) + 1).ToList();
+            var hasMoreBefore = selected.Count > Math.Clamp(limit, 1, 500);
+            if (hasMoreBefore)
+            {
+                selected.RemoveAt(selected.Count - 1);
+            }
+            selected.Reverse();
 
             return new DialogThreadRecord
             {
@@ -424,7 +437,9 @@ public sealed class TcpProtocolTests
                 PeerDisplayName = peer.DisplayName,
                 PeerUsername = peer.Username,
                 PeerLastSeenAt = peer.LastSeenAt,
-                Messages = messages
+                Messages = selected,
+                HasMoreBefore = hasMoreBefore,
+                OldestLoadedUnixMs = selected.Count == 0 ? 0 : new DateTimeOffset(selected[0].CreatedAt).ToUnixTimeMilliseconds()
             };
         }
 

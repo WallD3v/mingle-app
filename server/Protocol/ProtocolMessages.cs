@@ -137,6 +137,8 @@ public sealed class DialogOpenRequest
 {
     [ProtoMember(1)] public string Token { get; set; } = string.Empty;
     [ProtoMember(2)] public string PeerUserId { get; set; } = string.Empty;
+    [ProtoMember(3)] public long BeforeUnixMs { get; set; }
+    [ProtoMember(4)] public uint Limit { get; set; }
 }
 
 [ProtoContract]
@@ -173,6 +175,7 @@ public sealed class DialogListItem
     [ProtoMember(2)] public UserPreview? Peer { get; set; }
     [ProtoMember(3)] public string LastMessageText { get; set; } = string.Empty;
     [ProtoMember(4)] public long LastMessageAtUnixMs { get; set; }
+    [ProtoMember(5)] public uint UnreadCount { get; set; }
 }
 
 [ProtoContract]
@@ -187,6 +190,8 @@ public sealed class DialogData
     [ProtoMember(1)] public string DialogId { get; set; } = string.Empty;
     [ProtoMember(2)] public UserPreview? Peer { get; set; }
     [ProtoMember(3)] public List<DialogMessage> Messages { get; set; } = new();
+    [ProtoMember(4)] public bool HasMoreBefore { get; set; }
+    [ProtoMember(5)] public long OldestLoadedUnixMs { get; set; }
 }
 
 [ProtoContract]
