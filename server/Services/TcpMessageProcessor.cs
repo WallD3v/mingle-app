@@ -83,6 +83,28 @@ public sealed class TcpMessageProcessor(
 
             if (message.Ping is not null)
             {
+                if (connectionId.HasValue)
+                {
+                    var heartbeat = realtimeRegistry.MarkHeartbeat(
+                        connectionId.Value,
+                        message.Ping.IsAppForeground,
+                        DateTime.UtcNow);
+
+                    if (heartbeat.Success && heartbeat.PresenceChanged && heartbeat.UserId.HasValue)
+                    {
+                        if (!heartbeat.IsOnline)
+                        {
+                            await userRepository.TouchLastSeenAsync(heartbeat.UserId.Value);
+                        }
+
+                        await realtimeRegistry.BroadcastPresenceAsync(
+                            heartbeat.UserId.Value,
+                            heartbeat.IsOnline,
+                            heartbeat.LastSeenAtUnixMs,
+                            cancellationToken);
+                    }
+                }
+
                 return new ServerMessage
                 {
                     ProtocolVersion = ProtocolVersion,
@@ -304,10 +326,15 @@ public sealed class TcpMessageProcessor(
 
                 if (subscription.PresenceChanged)
                 {
+                    if (!subscription.IsOnline && subscription.UserId.HasValue)
+                    {
+                        await userRepository.TouchLastSeenAsync(subscription.UserId.Value);
+                    }
+
                     await realtimeRegistry.BroadcastPresenceAsync(
                         userId,
-                        isOnline: true,
-                        lastSeenAtUnixMs: DateTimeOffset.UtcNow.ToUnixTimeMilliseconds(),
+                        isOnline: subscription.IsOnline,
+                        lastSeenAtUnixMs: subscription.LastSeenAtUnixMs,
                         cancellationToken);
                 }
 

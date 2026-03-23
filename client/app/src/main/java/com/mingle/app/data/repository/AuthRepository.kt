@@ -187,10 +187,18 @@ class AuthRepository(
         }
     }
 
-    suspend fun setAppInForeground(): Boolean = subscribeRealtimeUpdates()
+    suspend fun setAppInForeground(): Boolean {
+        tcpClient.setAppInForeground(true)
+        return subscribeRealtimeUpdates()
+    }
 
     suspend fun setAppInBackground() {
-        tcpClient.close()
+        tcpClient.setAppInForeground(false)
+        try {
+            tcpClient.ping()
+        } catch (ex: Exception) {
+            Log.w(tag, "Background ping failed", ex)
+        }
     }
 
     suspend fun register(mnemonicInput: String): AuthResult {

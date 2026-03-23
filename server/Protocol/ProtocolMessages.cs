@@ -37,6 +37,7 @@ public sealed class ServerMessage
     [ProtoMember(13)] public MessageReceived? MessageReceived { get; set; }
     [ProtoMember(14)] public MessageReadUpdate? MessageReadUpdate { get; set; }
     [ProtoMember(15)] public PresenceUpdate? PresenceUpdate { get; set; }
+    [ProtoMember(16)] public ServerPing? ServerPing { get; set; }
 }
 
 [ProtoContract]
@@ -55,6 +56,7 @@ public sealed class MeRequest
 public sealed class PingRequest
 {
     [ProtoMember(1)] public long UnixTimeMs { get; set; }
+    [ProtoMember(2)] public bool IsAppForeground { get; set; } = true;
 }
 
 [ProtoContract]
@@ -93,6 +95,12 @@ public sealed class ErrorResponse
 
 [ProtoContract]
 public sealed class PongResponse
+{
+    [ProtoMember(1)] public long UnixTimeMs { get; set; }
+}
+
+[ProtoContract]
+public sealed class ServerPing
 {
     [ProtoMember(1)] public long UnixTimeMs { get; set; }
 }

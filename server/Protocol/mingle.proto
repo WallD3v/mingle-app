@@ -11,6 +11,7 @@ message MeRequest {
 
 message PingRequest {
   int64 unix_time_ms = 1;
+  bool is_app_foreground = 2;
 }
 
 message ProfileGetRequest {
@@ -150,6 +151,10 @@ message PresenceUpdate {
   int64 last_seen_at_unix_ms = 3;
 }
 
+message ServerPing {
+  int64 unix_time_ms = 1;
+}
+
 message ClientMessage {
   uint32 protocol_version = 1;
   oneof payload {
@@ -184,5 +189,6 @@ message ServerMessage {
     MessageReceived message_received = 13;
     MessageReadUpdate message_read_update = 14;
     PresenceUpdate presence_update = 15;
+    ServerPing server_ping = 16;
   }
 }

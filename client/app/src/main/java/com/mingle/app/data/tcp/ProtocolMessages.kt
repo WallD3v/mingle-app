@@ -37,7 +37,8 @@ data class ServerMessage(
     @ProtoNumber(12) val subscribed: Subscribed? = null,
     @ProtoNumber(13) val messageReceived: MessageReceived? = null,
     @ProtoNumber(14) val messageReadUpdate: MessageReadUpdate? = null,
-    @ProtoNumber(15) val presenceUpdate: PresenceUpdate? = null
+    @ProtoNumber(15) val presenceUpdate: PresenceUpdate? = null,
+    @ProtoNumber(16) val serverPing: ServerPing? = null
 )
 
 @Serializable
@@ -52,7 +53,8 @@ data class MeRequest(
 
 @Serializable
 data class PingRequest(
-    @ProtoNumber(1) val unixTimeMs: Long
+    @ProtoNumber(1) val unixTimeMs: Long,
+    @ProtoNumber(2) val isAppForeground: Boolean = true
 )
 
 @Serializable
@@ -117,6 +119,11 @@ data class ErrorMessage(
 
 @Serializable
 data class PongMessage(
+    @ProtoNumber(1) val unixTimeMs: Long
+)
+
+@Serializable
+data class ServerPing(
     @ProtoNumber(1) val unixTimeMs: Long
 )
 

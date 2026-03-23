@@ -13,6 +13,8 @@ public sealed class TcpServerHostedService(
     IUserRepository userRepository,
     ILogger<TcpServerHostedService> logger) : BackgroundService
 {
+    private static readonly TimeSpan HeartbeatInterval = TimeSpan.FromSeconds(1);
+    private static readonly TimeSpan HeartbeatTimeout = TimeSpan.FromSeconds(5);
     private TcpListener? _listener;
 
     protected override async Task ExecuteAsync(CancellationToken stoppingToken)
@@ -22,6 +24,7 @@ public sealed class TcpServerHostedService(
         _listener = new TcpListener(IPAddress.Any, tcpPort);
         _listener.Start();
         logger.LogInformation("TCP server listening on port {Port}", tcpPort);
+        var heartbeatTask = Task.Run(() => HeartbeatLoopAsync(stoppingToken), stoppingToken);
 
         try
         {
@@ -34,6 +37,17 @@ public sealed class TcpServerHostedService(
         catch (OperationCanceledException)
         {
             // graceful shutdown
+        }
+        finally
+        {
+            try
+            {
+                await heartbeatTask;
+            }
+            catch (OperationCanceledException)
+            {
+                // graceful shutdown
+            }
         }
     }
 
@@ -98,17 +112,59 @@ public sealed class TcpServerHostedService(
             var transition = realtimeRegistry.Unregister(connectionId);
             if (transition.Success && transition.PresenceChanged && transition.UserId.HasValue)
             {
-                await userRepository.TouchLastSeenAsync(transition.UserId.Value);
+                if (!transition.IsOnline)
+                {
+                    await userRepository.TouchLastSeenAsync(transition.UserId.Value);
+                }
 
                 await realtimeRegistry.BroadcastPresenceAsync(
                     transition.UserId.Value,
-                    isOnline: false,
-                    lastSeenAtUnixMs: DateTimeOffset.UtcNow.ToUnixTimeMilliseconds(),
+                    isOnline: transition.IsOnline,
+                    lastSeenAtUnixMs: transition.LastSeenAtUnixMs,
                     cancellationToken);
             }
 
             client.Close();
             sendLock.Dispose();
+        }
+    }
+
+    private async Task HeartbeatLoopAsync(CancellationToken cancellationToken)
+    {
+        using var timer = new PeriodicTimer(HeartbeatInterval);
+        while (await timer.WaitForNextTickAsync(cancellationToken))
+        {
+            var now = DateTime.UtcNow;
+            var connectionIds = realtimeRegistry.GetConnectionIds();
+            foreach (var connectionId in connectionIds)
+            {
+                await realtimeRegistry.PushToConnectionAsync(
+                    connectionId,
+                    new ServerMessage
+                    {
+                        ProtocolVersion = TcpMessageProcessor.ProtocolVersion,
+                        ServerPing = new ServerPing
+                        {
+                            UnixTimeMs = DateTimeOffset.UtcNow.ToUnixTimeMilliseconds()
+                        }
+                    },
+                    cancellationToken);
+            }
+
+            var staleTransitions = realtimeRegistry.SweepStaleConnections(now, HeartbeatTimeout);
+            foreach (var transition in staleTransitions.Where(x => x.Success && x.PresenceChanged && x.UserId.HasValue))
+            {
+                if (!transition.IsOnline)
+                {
+                    await userRepository.TouchLastSeenAsync(transition.UserId!.Value);
+                }
+
+                await realtimeRegistry.BroadcastPresenceAsync(
+                    transition.UserId!.Value,
+                    transition.IsOnline,
+                    transition.LastSeenAtUnixMs,
+                    cancellationToken);
+            }
         }
     }
 }

@@ -21,6 +21,7 @@ class TcpAuthClient(
     private val port: Int = BuildConfig.TCP_PORT
 ) {
     private val mutex = Mutex()
+    private val writeMutex = Mutex()
     private var socket: Socket? = null
     private val ioScope = CoroutineScope(SupervisorJob() + Dispatchers.IO)
     private var readJob: kotlinx.coroutines.Job? = null
@@ -32,6 +33,8 @@ class TcpAuthClient(
     private var messageReadListener: ((MessageReadUpdate) -> Unit)? = null
     @Volatile
     private var presenceListener: ((PresenceUpdate) -> Unit)? = null
+    @Volatile
+    private var appInForeground: Boolean = true
 
     suspend fun register(mnemonic: String): ServerMessage {
         return send(ClientMessage(register = AuthRequest(mnemonic = mnemonic)))
@@ -45,8 +48,13 @@ class TcpAuthClient(
         return send(ClientMessage(me = MeRequest(token = token)))
     }
 
-    suspend fun ping(): ServerMessage {
-        return send(ClientMessage(ping = PingRequest(System.currentTimeMillis())))
+    suspend fun ping() {
+        withContext(Dispatchers.IO) {
+            mutex.withLock {
+                val connection = ensureSocket()
+                writeMessage(connection, ClientMessage(ping = PingRequest(System.currentTimeMillis(), appInForeground)))
+            }
+        }
     }
 
     suspend fun getProfile(token: String): ServerMessage {
@@ -125,6 +133,10 @@ class TcpAuthClient(
         presenceListener = listener
     }
 
+    fun setAppInForeground(value: Boolean) {
+        appInForeground = value
+    }
+
     suspend fun close() {
         mutex.withLock {
             readJob?.cancel()
@@ -172,9 +184,11 @@ class TcpAuthClient(
         socket = null
     }
 
-    private fun writeMessage(connection: Socket, message: ClientMessage) {
+    private suspend fun writeMessage(connection: Socket, message: ClientMessage) {
         val payload = ProtoBuf.encodeToByteArray(ClientMessage.serializer(), message)
-        TcpFrameCodec.writeFrame(connection.getOutputStream(), payload)
+        writeMutex.withLock {
+            TcpFrameCodec.writeFrame(connection.getOutputStream(), payload)
+        }
     }
 
     private fun ensureReaderLoop(connection: Socket) {
@@ -194,6 +208,18 @@ class TcpAuthClient(
                         messageReadListener?.invoke(message.messageReadUpdate)
                     } else if (message.presenceUpdate != null) {
                         presenceListener?.invoke(message.presenceUpdate)
+                    } else if (message.serverPing != null) {
+                        writeMessage(
+                            connection,
+                            ClientMessage(
+                                ping = PingRequest(
+                                    unixTimeMs = System.currentTimeMillis(),
+                                    isAppForeground = appInForeground
+                                )
+                            )
+                        )
+                    } else if (message.pong != null) {
+                        // heartbeat ack; no request/response routing needed
                     } else {
                         responseChannel.send(message)
                     }
