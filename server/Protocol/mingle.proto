@@ -94,6 +94,7 @@ message DialogMessage {
   string sender_user_id = 3;
   string text = 4;
   int64 created_at_unix_ms = 5;
+  int64 read_by_recipient_at_unix_ms = 6;
 }
 
 message DialogListItem {
@@ -134,6 +135,12 @@ message MessageReceived {
   UserPreview from = 2;
 }
 
+message MessageReadUpdate {
+  string dialog_id = 1;
+  string reader_user_id = 2;
+  int64 read_at_unix_ms = 3;
+}
+
 message ClientMessage {
   uint32 protocol_version = 1;
   oneof payload {
@@ -166,5 +173,6 @@ message ServerMessage {
     MessageSent message_sent = 11;
     Subscribed subscribed = 12;
     MessageReceived message_received = 13;
+    MessageReadUpdate message_read_update = 14;
   }
 }

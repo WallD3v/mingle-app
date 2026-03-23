@@ -37,7 +37,8 @@ data class DialogMessageModel(
     val dialogId: String,
     val senderUserId: String,
     val text: String,
-    val createdAtUnixMs: Long
+    val createdAtUnixMs: Long,
+    val readByRecipientAtUnixMs: Long
 )
 
 data class DialogThreadModel(
@@ -51,6 +52,12 @@ data class DialogThreadModel(
 data class IncomingMessageModel(
     val message: DialogMessageModel,
     val from: UserSearchModel
+)
+
+data class MessageReadUpdateModel(
+    val dialogId: String,
+    val readerUserId: String,
+    val readAtUnixMs: Long
 )
 
 sealed class ProfileResult {
@@ -112,7 +119,8 @@ class AuthRepository(
                         dialogId = message.dialogId,
                         senderUserId = message.senderUserId,
                         text = message.text,
-                        createdAtUnixMs = message.createdAtUnixMs
+                        createdAtUnixMs = message.createdAtUnixMs,
+                        readByRecipientAtUnixMs = message.readByRecipientAtUnixMs
                     ),
                     from = UserSearchModel(
                         userId = from.userId,
@@ -120,6 +128,23 @@ class AuthRepository(
                         username = from.username,
                         lastSeenAtUnixMs = from.lastSeenAtUnixMs
                     )
+                )
+            )
+        }
+    }
+
+    fun setMessageReadUpdateListener(listener: ((MessageReadUpdateModel) -> Unit)?) {
+        if (listener == null) {
+            tcpClient.setMessageReadListener(null)
+            return
+        }
+
+        tcpClient.setMessageReadListener { update ->
+            listener(
+                MessageReadUpdateModel(
+                    dialogId = update.dialogId,
+                    readerUserId = update.readerUserId,
+                    readAtUnixMs = update.readAtUnixMs
                 )
             )
         }
@@ -322,7 +347,8 @@ class AuthRepository(
                                     dialogId = it.dialogId,
                                     senderUserId = it.senderUserId,
                                     text = it.text,
-                                    createdAtUnixMs = it.createdAtUnixMs
+                                    createdAtUnixMs = it.createdAtUnixMs,
+                                    readByRecipientAtUnixMs = it.readByRecipientAtUnixMs
                                 )
                             },
                             hasMoreBefore = response.dialogData.hasMoreBefore,
@@ -353,7 +379,8 @@ class AuthRepository(
                             dialogId = msg.dialogId,
                             senderUserId = msg.senderUserId,
                             text = msg.text,
-                            createdAtUnixMs = msg.createdAtUnixMs
+                            createdAtUnixMs = msg.createdAtUnixMs,
+                            readByRecipientAtUnixMs = msg.readByRecipientAtUnixMs
                         )
                     )
                 }

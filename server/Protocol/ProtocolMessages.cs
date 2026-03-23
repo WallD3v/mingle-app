@@ -35,6 +35,7 @@ public sealed class ServerMessage
     [ProtoMember(11)] public MessageSent? MessageSent { get; set; }
     [ProtoMember(12)] public Subscribed? Subscribed { get; set; }
     [ProtoMember(13)] public MessageReceived? MessageReceived { get; set; }
+    [ProtoMember(14)] public MessageReadUpdate? MessageReadUpdate { get; set; }
 }
 
 [ProtoContract]
@@ -166,6 +167,7 @@ public sealed class DialogMessage
     [ProtoMember(3)] public string SenderUserId { get; set; } = string.Empty;
     [ProtoMember(4)] public string Text { get; set; } = string.Empty;
     [ProtoMember(5)] public long CreatedAtUnixMs { get; set; }
+    [ProtoMember(6)] public long ReadByRecipientAtUnixMs { get; set; }
 }
 
 [ProtoContract]
@@ -218,4 +220,12 @@ public sealed class MessageReceived
 {
     [ProtoMember(1)] public DialogMessage? Message { get; set; }
     [ProtoMember(2)] public UserPreview? From { get; set; }
+}
+
+[ProtoContract]
+public sealed class MessageReadUpdate
+{
+    [ProtoMember(1)] public string DialogId { get; set; } = string.Empty;
+    [ProtoMember(2)] public string ReaderUserId { get; set; } = string.Empty;
+    [ProtoMember(3)] public long ReadAtUnixMs { get; set; }
 }

@@ -211,6 +211,23 @@ public sealed class TcpMessageProcessor(
                     return Error("USER_NOT_FOUND", "Peer user not found.");
                 }
 
+                if (dialog.ReadUpdatedAtUnixMs > 0)
+                {
+                    await realtimeRegistry.PushToUserAsync(
+                        peerUserId,
+                        new ServerMessage
+                        {
+                            ProtocolVersion = ProtocolVersion,
+                            MessageReadUpdate = new MessageReadUpdate
+                            {
+                                DialogId = dialog.DialogId?.ToString() ?? string.Empty,
+                                ReaderUserId = userId.ToString(),
+                                ReadAtUnixMs = dialog.ReadUpdatedAtUnixMs
+                            }
+                        },
+                        cancellationToken);
+                }
+
                 return new ServerMessage
                 {
                     ProtocolVersion = ProtocolVersion,
@@ -396,7 +413,10 @@ public sealed class TcpMessageProcessor(
             DialogId = message.DialogId.ToString(),
             SenderUserId = message.SenderUserId.ToString(),
             Text = message.Text,
-            CreatedAtUnixMs = new DateTimeOffset(message.CreatedAt).ToUnixTimeMilliseconds()
+            CreatedAtUnixMs = new DateTimeOffset(message.CreatedAt).ToUnixTimeMilliseconds(),
+            ReadByRecipientAtUnixMs = message.ReadByRecipientAt.HasValue
+                ? new DateTimeOffset(message.ReadByRecipientAt.Value).ToUnixTimeMilliseconds()
+                : 0
         };
     }
 

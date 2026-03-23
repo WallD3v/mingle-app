@@ -1,5 +1,6 @@
 package com.mingle.app.ui
 
+import androidx.activity.compose.BackHandler
 import androidx.compose.foundation.layout.Arrangement
 import androidx.compose.foundation.layout.Box
 import androidx.compose.foundation.layout.Column
@@ -46,6 +47,7 @@ import androidx.compose.runtime.mutableStateOf
 import androidx.compose.runtime.remember
 import androidx.compose.runtime.rememberCoroutineScope
 import androidx.compose.runtime.saveable.rememberSaveable
+import androidx.compose.runtime.saveable.mapSaver
 import androidx.compose.runtime.setValue
 import androidx.compose.ui.Alignment
 import androidx.compose.ui.Modifier
@@ -401,7 +403,30 @@ private fun MnemonicAuthScreen(
 @Composable
 private fun HomeScreen(repository: AuthRepository) {
     var selectedTab by remember { mutableStateOf(HomeTab.CHATS) }
-    var openedChatUser by remember { mutableStateOf<UserSearchModel?>(null) }
+    var openedChatUser by rememberSaveable(
+        stateSaver = mapSaver(
+            save = { user ->
+                if (user == null) emptyMap() else mapOf(
+                    "userId" to user.userId,
+                    "displayName" to user.displayName,
+                    "username" to user.username,
+                    "lastSeenAtUnixMs" to user.lastSeenAtUnixMs
+                )
+            },
+            restore = { map ->
+                if (map.isEmpty()) {
+                    null
+                } else {
+                    UserSearchModel(
+                        userId = map["userId"] as String,
+                        displayName = map["displayName"] as String,
+                        username = map["username"] as String,
+                        lastSeenAtUnixMs = map["lastSeenAtUnixMs"] as Long
+                    )
+                }
+            }
+        )
+    ) { mutableStateOf<UserSearchModel?>(null) }
     var openedChatMessages by remember { mutableStateOf<List<DialogMessageModel>>(emptyList()) }
     var chatHasMoreBefore by rememberSaveable { mutableStateOf(false) }
     var chatOldestLoadedUnixMs by rememberSaveable { mutableStateOf(0L) }
@@ -425,6 +450,10 @@ private fun HomeScreen(repository: AuthRepository) {
     val currentUserId = remember { repository.getCurrentUserId().orEmpty() }
     val scope = rememberCoroutineScope()
     val palette = rememberHomePalette()
+
+    BackHandler(enabled = openedChatUser != null) {
+        openedChatUser = null
+    }
 
     DisposableEffect(Unit) {
         repository.setIncomingMessageListener { incoming ->
@@ -455,8 +484,26 @@ private fun HomeScreen(repository: AuthRepository) {
                 }
             }
         }
+        repository.setMessageReadUpdateListener { update ->
+            scope.launch {
+                if (openedChatMessages.isEmpty()) {
+                    return@launch
+                }
+
+                openedChatMessages = openedChatMessages.map { msg ->
+                    if (msg.dialogId == update.dialogId &&
+                        msg.senderUserId == currentUserId &&
+                        msg.createdAtUnixMs <= update.readAtUnixMs) {
+                        msg.copy(readByRecipientAtUnixMs = maxOf(msg.readByRecipientAtUnixMs, update.readAtUnixMs))
+                    } else {
+                        msg
+                    }
+                }
+            }
+        }
         onDispose {
             repository.setIncomingMessageListener(null)
+            repository.setMessageReadUpdateListener(null)
         }
     }
 
@@ -1068,11 +1115,21 @@ private fun ChatScreen(
                                         .background(if (outgoing) palette.selectedTabBackground else palette.panelBackground)
                                         .padding(horizontal = 10.dp, vertical = 8.dp)
                                 ) {
-                                    Text(
-                                        text = message.text,
-                                        color = palette.primaryText,
-                                        style = MaterialTheme.typography.bodyMedium
-                                    )
+                                    Column {
+                                        Text(
+                                            text = message.text,
+                                            color = palette.primaryText,
+                                            style = MaterialTheme.typography.bodyMedium
+                                        )
+                                        if (outgoing) {
+                                            Spacer(modifier = Modifier.height(2.dp))
+                                            Text(
+                                                text = if (message.readByRecipientAtUnixMs > 0) "Прочитано" else "Отправлено",
+                                                color = palette.secondaryText,
+                                                style = MaterialTheme.typography.labelSmall
+                                            )
+                                        }
+                                    }
                                 }
                             }
                         }

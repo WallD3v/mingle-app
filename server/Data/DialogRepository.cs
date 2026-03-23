@@ -102,7 +102,8 @@ public sealed class DialogRepository(NpgsqlDataSource dataSource) : IDialogRepos
                       dialog_id AS DialogId,
                       sender_user_id AS SenderUserId,
                       body AS Text,
-                      created_at AS CreatedAt;
+                      created_at AS CreatedAt,
+                      read_by_recipient_at AS ReadByRecipientAt;
             """;
 
         var message = await connection.QuerySingleAsync<DialogMessageRecord>(insertMessageSql, new
@@ -168,20 +169,26 @@ public sealed class DialogRepository(NpgsqlDataSource dataSource) : IDialogRepos
         }
 
         const string markReadSql = """
-            UPDATE messages
-            SET read_by_recipient_at = NOW()
-            WHERE dialog_id = @DialogId
-              AND sender_user_id <> @UserId
-              AND read_by_recipient_at IS NULL;
+            WITH updated AS (
+                UPDATE messages
+                SET read_by_recipient_at = NOW()
+                WHERE dialog_id = @DialogId
+                  AND sender_user_id <> @UserId
+                  AND read_by_recipient_at IS NULL
+                RETURNING read_by_recipient_at
+            )
+            SELECT MAX(read_by_recipient_at)
+            FROM updated;
             """;
-        await connection.ExecuteAsync(markReadSql, new { DialogId = dialogId.Value, UserId = userId }, transaction);
+        var readUpdatedAt = await connection.ExecuteScalarAsync<DateTime?>(markReadSql, new { DialogId = dialogId.Value, UserId = userId }, transaction);
 
         const string messagesSql = """
             SELECT id AS MessageId,
                    dialog_id AS DialogId,
                    sender_user_id AS SenderUserId,
                    body AS Text,
-                   created_at AS CreatedAt
+                   created_at AS CreatedAt,
+                   read_by_recipient_at AS ReadByRecipientAt
             FROM messages
             WHERE dialog_id = @DialogId
               AND (@BeforeUnixMs IS NULL OR created_at < to_timestamp(@BeforeUnixMs / 1000.0))
@@ -217,7 +224,8 @@ public sealed class DialogRepository(NpgsqlDataSource dataSource) : IDialogRepos
             PeerLastSeenAt = peer.PeerLastSeenAt,
             Messages = fetched,
             HasMoreBefore = hasMoreBefore,
-            OldestLoadedUnixMs = oldestLoadedUnixMs
+            OldestLoadedUnixMs = oldestLoadedUnixMs,
+            ReadUpdatedAtUnixMs = readUpdatedAt.HasValue ? new DateTimeOffset(readUpdatedAt.Value).ToUnixTimeMilliseconds() : 0
         };
     }
 

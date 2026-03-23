@@ -19,6 +19,7 @@ public sealed class DialogMessageRecord
     public Guid SenderUserId { get; set; }
     public string Text { get; set; } = string.Empty;
     public DateTime CreatedAt { get; set; }
+    public DateTime? ReadByRecipientAt { get; set; }
 }
 
 public sealed class DialogThreadRecord
@@ -31,4 +32,5 @@ public sealed class DialogThreadRecord
     public IReadOnlyList<DialogMessageRecord> Messages { get; set; } = Array.Empty<DialogMessageRecord>();
     public bool HasMoreBefore { get; set; }
     public long OldestLoadedUnixMs { get; set; }
+    public long ReadUpdatedAtUnixMs { get; set; }
 }

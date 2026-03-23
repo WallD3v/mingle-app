@@ -9,6 +9,7 @@ public interface IRealtimeConnectionRegistry
     void Unregister(Guid connectionId);
     bool Subscribe(Guid connectionId, Guid userId);
     Task PushMessageReceivedAsync(Guid recipientUserId, MessageReceived payload, CancellationToken cancellationToken);
+    Task PushToUserAsync(Guid userId, ServerMessage message, CancellationToken cancellationToken);
 }
 
 public sealed class TcpClientConnection(
@@ -62,7 +63,16 @@ public sealed class RealtimeConnectionRegistry : IRealtimeConnectionRegistry
 
     public async Task PushMessageReceivedAsync(Guid recipientUserId, MessageReceived payload, CancellationToken cancellationToken)
     {
-        if (!_userConnections.TryGetValue(recipientUserId, out var connections) || connections.IsEmpty)
+        await PushToUserAsync(recipientUserId, new ServerMessage
+        {
+            ProtocolVersion = TcpMessageProcessor.ProtocolVersion,
+            MessageReceived = payload
+        }, cancellationToken);
+    }
+
+    public async Task PushToUserAsync(Guid userId, ServerMessage message, CancellationToken cancellationToken)
+    {
+        if (!_userConnections.TryGetValue(userId, out var connections) || connections.IsEmpty)
         {
             return;
         }
@@ -78,11 +88,7 @@ public sealed class RealtimeConnectionRegistry : IRealtimeConnectionRegistry
 
             try
             {
-                await connection.SendAsync(new ServerMessage
-                {
-                    ProtocolVersion = TcpMessageProcessor.ProtocolVersion,
-                    MessageReceived = payload
-                }, cancellationToken);
+                await connection.SendAsync(message, cancellationToken);
             }
             catch
             {
@@ -108,4 +114,3 @@ public sealed class RealtimeConnectionRegistry : IRealtimeConnectionRegistry
         }
     }
 }
-

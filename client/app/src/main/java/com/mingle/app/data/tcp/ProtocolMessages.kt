@@ -35,7 +35,8 @@ data class ServerMessage(
     @ProtoNumber(10) val dialogData: DialogData? = null,
     @ProtoNumber(11) val messageSent: MessageSent? = null,
     @ProtoNumber(12) val subscribed: Subscribed? = null,
-    @ProtoNumber(13) val messageReceived: MessageReceived? = null
+    @ProtoNumber(13) val messageReceived: MessageReceived? = null,
+    @ProtoNumber(14) val messageReadUpdate: MessageReadUpdate? = null
 )
 
 @Serializable
@@ -153,7 +154,8 @@ data class DialogMessage(
     @ProtoNumber(2) val dialogId: String,
     @ProtoNumber(3) val senderUserId: String,
     @ProtoNumber(4) val text: String,
-    @ProtoNumber(5) val createdAtUnixMs: Long
+    @ProtoNumber(5) val createdAtUnixMs: Long,
+    @ProtoNumber(6) val readByRecipientAtUnixMs: Long = 0L
 )
 
 @Serializable
@@ -194,6 +196,13 @@ data class Subscribed(
 data class MessageReceived(
     @ProtoNumber(1) val message: DialogMessage? = null,
     @ProtoNumber(2) val from: UserPreview? = null
+)
+
+@Serializable
+data class MessageReadUpdate(
+    @ProtoNumber(1) val dialogId: String,
+    @ProtoNumber(2) val readerUserId: String,
+    @ProtoNumber(3) val readAtUnixMs: Long
 )
 
 const val PROTOCOL_VERSION = 1
