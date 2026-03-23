@@ -14,14 +14,16 @@ data class ProfileModel(
     val userId: String,
     val displayName: String,
     val username: String,
-    val lastSeenAtUnixMs: Long
+    val lastSeenAtUnixMs: Long,
+    val isOnline: Boolean
 )
 
 data class UserSearchModel(
     val userId: String,
     val displayName: String,
     val username: String,
-    val lastSeenAtUnixMs: Long
+    val lastSeenAtUnixMs: Long,
+    val isOnline: Boolean
 )
 
 data class DialogListItemModel(
@@ -58,6 +60,12 @@ data class MessageReadUpdateModel(
     val dialogId: String,
     val readerUserId: String,
     val readAtUnixMs: Long
+)
+
+data class PresenceUpdateModel(
+    val userId: String,
+    val isOnline: Boolean,
+    val lastSeenAtUnixMs: Long
 )
 
 sealed class ProfileResult {
@@ -126,7 +134,8 @@ class AuthRepository(
                         userId = from.userId,
                         displayName = from.displayName,
                         username = from.username,
-                        lastSeenAtUnixMs = from.lastSeenAtUnixMs
+                        lastSeenAtUnixMs = from.lastSeenAtUnixMs,
+                        isOnline = from.isOnline
                     )
                 )
             )
@@ -150,6 +159,23 @@ class AuthRepository(
         }
     }
 
+    fun setPresenceUpdateListener(listener: ((PresenceUpdateModel) -> Unit)?) {
+        if (listener == null) {
+            tcpClient.setPresenceListener(null)
+            return
+        }
+
+        tcpClient.setPresenceListener { update ->
+            listener(
+                PresenceUpdateModel(
+                    userId = update.userId,
+                    isOnline = update.isOnline,
+                    lastSeenAtUnixMs = update.lastSeenAtUnixMs
+                )
+            )
+        }
+    }
+
     suspend fun subscribeRealtimeUpdates(): Boolean {
         val token = sessionStore.getToken() ?: return false
         return try {
@@ -159,6 +185,12 @@ class AuthRepository(
             Log.e(tag, "TCP subscribe updates failed", ex)
             false
         }
+    }
+
+    suspend fun setAppInForeground(): Boolean = subscribeRealtimeUpdates()
+
+    suspend fun setAppInBackground() {
+        tcpClient.close()
     }
 
     suspend fun register(mnemonicInput: String): AuthResult {
@@ -211,7 +243,8 @@ class AuthRepository(
                             userId = profile.userId,
                             displayName = profile.displayName,
                             username = profile.username,
-                            lastSeenAtUnixMs = profile.lastSeenAtUnixMs
+                            lastSeenAtUnixMs = profile.lastSeenAtUnixMs,
+                            isOnline = profile.isOnline
                         )
                     )
                 }
@@ -242,7 +275,8 @@ class AuthRepository(
                             userId = profile.userId,
                             displayName = profile.displayName,
                             username = profile.username,
-                            lastSeenAtUnixMs = profile.lastSeenAtUnixMs
+                            lastSeenAtUnixMs = profile.lastSeenAtUnixMs,
+                            isOnline = profile.isOnline
                         )
                     )
                 }
@@ -271,7 +305,8 @@ class AuthRepository(
                             userId = it.userId,
                             displayName = it.displayName,
                             username = it.username,
-                            lastSeenAtUnixMs = it.lastSeenAtUnixMs
+                            lastSeenAtUnixMs = it.lastSeenAtUnixMs,
+                            isOnline = it.isOnline
                         )
                     }
                     UserSearchResult.Success(items)
@@ -300,7 +335,8 @@ class AuthRepository(
                                 userId = peer.userId,
                                 displayName = peer.displayName,
                                 username = peer.username,
-                                lastSeenAtUnixMs = peer.lastSeenAtUnixMs
+                                lastSeenAtUnixMs = peer.lastSeenAtUnixMs,
+                                isOnline = peer.isOnline
                             ),
                             lastMessageText = item.lastMessageText,
                             lastMessageAtUnixMs = item.lastMessageAtUnixMs,
@@ -339,7 +375,8 @@ class AuthRepository(
                                 userId = peer.userId,
                                 displayName = peer.displayName,
                                 username = peer.username,
-                                lastSeenAtUnixMs = peer.lastSeenAtUnixMs
+                                lastSeenAtUnixMs = peer.lastSeenAtUnixMs,
+                                isOnline = peer.isOnline
                             ),
                             messages = response.dialogData.messages.map {
                                 DialogMessageModel(
@@ -390,6 +427,21 @@ class AuthRepository(
         } catch (ex: Exception) {
             Log.e(tag, "TCP send message failed", ex)
             SendMessageResult.Failure("Ошибка сети. Проверьте соединение")
+        }
+    }
+
+    suspend fun markDialogRead(peerUserId: String): Boolean {
+        val token = sessionStore.getToken() ?: return false
+        return try {
+            val response = tcpClient.openDialog(
+                token = token,
+                peerUserId = peerUserId,
+                limit = 1
+            )
+            response.dialogData != null
+        } catch (ex: Exception) {
+            Log.e(tag, "TCP mark dialog read failed", ex)
+            false
         }
     }
 

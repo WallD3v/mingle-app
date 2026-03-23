@@ -10,6 +10,7 @@ import androidx.compose.foundation.clickable
 import androidx.compose.foundation.layout.fillMaxSize
 import androidx.compose.foundation.layout.fillMaxWidth
 import androidx.compose.foundation.layout.height
+import androidx.compose.foundation.layout.imePadding
 import androidx.compose.foundation.layout.width
 import androidx.compose.foundation.layout.padding
 import androidx.compose.foundation.layout.size
@@ -69,6 +70,9 @@ import androidx.compose.material3.Icon
 import androidx.compose.material3.AlertDialog
 import androidx.compose.material3.TextButton
 import androidx.compose.ui.window.Popup
+import androidx.lifecycle.Lifecycle
+import androidx.lifecycle.LifecycleEventObserver
+import androidx.lifecycle.compose.LocalLifecycleOwner
 import com.mingle.app.data.repository.AuthRepository
 import com.mingle.app.data.repository.AuthResult
 import com.mingle.app.data.repository.DialogListItemModel
@@ -410,7 +414,8 @@ private fun HomeScreen(repository: AuthRepository) {
                     "userId" to user.userId,
                     "displayName" to user.displayName,
                     "username" to user.username,
-                    "lastSeenAtUnixMs" to user.lastSeenAtUnixMs
+                    "lastSeenAtUnixMs" to user.lastSeenAtUnixMs,
+                    "isOnline" to user.isOnline
                 )
             },
             restore = { map ->
@@ -421,7 +426,34 @@ private fun HomeScreen(repository: AuthRepository) {
                         userId = map["userId"] as String,
                         displayName = map["displayName"] as String,
                         username = map["username"] as String,
-                        lastSeenAtUnixMs = map["lastSeenAtUnixMs"] as Long
+                        lastSeenAtUnixMs = map["lastSeenAtUnixMs"] as Long,
+                        isOnline = map["isOnline"] as? Boolean ?: false
+                    )
+                }
+            }
+        )
+    ) { mutableStateOf<UserSearchModel?>(null) }
+    var openedPeerProfileUser by rememberSaveable(
+        stateSaver = mapSaver(
+            save = { user ->
+                if (user == null) emptyMap() else mapOf(
+                    "userId" to user.userId,
+                    "displayName" to user.displayName,
+                    "username" to user.username,
+                    "lastSeenAtUnixMs" to user.lastSeenAtUnixMs,
+                    "isOnline" to user.isOnline
+                )
+            },
+            restore = { map ->
+                if (map.isEmpty()) {
+                    null
+                } else {
+                    UserSearchModel(
+                        userId = map["userId"] as String,
+                        displayName = map["displayName"] as String,
+                        username = map["username"] as String,
+                        lastSeenAtUnixMs = map["lastSeenAtUnixMs"] as Long,
+                        isOnline = map["isOnline"] as? Boolean ?: false
                     )
                 }
             }
@@ -450,8 +482,13 @@ private fun HomeScreen(repository: AuthRepository) {
     val currentUserId = remember { repository.getCurrentUserId().orEmpty() }
     val scope = rememberCoroutineScope()
     val palette = rememberHomePalette()
+    val lifecycleOwner = LocalLifecycleOwner.current
 
-    BackHandler(enabled = openedChatUser != null) {
+    BackHandler(enabled = openedPeerProfileUser != null) {
+        openedPeerProfileUser = null
+    }
+
+    BackHandler(enabled = openedChatUser != null && openedPeerProfileUser == null) {
         openedChatUser = null
     }
 
@@ -481,6 +518,8 @@ private fun HomeScreen(repository: AuthRepository) {
                     openedChatMessages.none { it.messageId == incoming.message.messageId }) {
                     openedChatMessages = openedChatMessages + incoming.message
                     chatScrollToBottomSignal += 1
+                    repository.markDialogRead(incoming.from.userId)
+                    dialogsReloadKey += 1
                 }
             }
         }
@@ -501,14 +540,60 @@ private fun HomeScreen(repository: AuthRepository) {
                 }
             }
         }
+        repository.setPresenceUpdateListener { update ->
+            scope.launch {
+                dialogs = dialogs.map { item ->
+                    if (item.peer.userId == update.userId) {
+                        item.copy(
+                            peer = item.peer.copy(
+                                isOnline = update.isOnline,
+                                lastSeenAtUnixMs = update.lastSeenAtUnixMs
+                            )
+                        )
+                    } else {
+                        item
+                    }
+                }
+
+                if (openedChatUser?.userId == update.userId) {
+                    openedChatUser = openedChatUser?.copy(
+                        isOnline = update.isOnline,
+                        lastSeenAtUnixMs = update.lastSeenAtUnixMs
+                    )
+                }
+
+                if (openedPeerProfileUser?.userId == update.userId) {
+                    openedPeerProfileUser = openedPeerProfileUser?.copy(
+                        isOnline = update.isOnline,
+                        lastSeenAtUnixMs = update.lastSeenAtUnixMs
+                    )
+                }
+            }
+        }
         onDispose {
             repository.setIncomingMessageListener(null)
             repository.setMessageReadUpdateListener(null)
+            repository.setPresenceUpdateListener(null)
         }
     }
 
-    LaunchedEffect(Unit) {
-        repository.subscribeRealtimeUpdates()
+    DisposableEffect(lifecycleOwner) {
+        val observer = LifecycleEventObserver { _, event ->
+            when (event) {
+                Lifecycle.Event.ON_START -> {
+                    scope.launch { repository.setAppInForeground() }
+                }
+                Lifecycle.Event.ON_STOP -> {
+                    scope.launch { repository.setAppInBackground() }
+                }
+                else -> Unit
+            }
+        }
+
+        lifecycleOwner.lifecycle.addObserver(observer)
+        onDispose {
+            lifecycleOwner.lifecycle.removeObserver(observer)
+        }
     }
 
     LaunchedEffect(isSearchOpen, searchQuery) {
@@ -595,7 +680,13 @@ private fun HomeScreen(repository: AuthRepository) {
             Column(modifier = Modifier.fillMaxSize()) {
                 when (selectedTab) {
                     HomeTab.CHATS -> {
-                        if (openedChatUser != null) {
+                        if (openedPeerProfileUser != null) {
+                            PeerProfileScreen(
+                                palette = palette,
+                                user = openedPeerProfileUser!!,
+                                onBack = { openedPeerProfileUser = null }
+                            )
+                        } else if (openedChatUser != null) {
                             ChatScreen(
                                 palette = palette,
                                 user = openedChatUser!!,
@@ -656,6 +747,7 @@ private fun HomeScreen(repository: AuthRepository) {
                                         isLoadingOlderMessages = false
                                     }
                                 },
+                                onOpenPeerProfile = { openedPeerProfileUser = it },
                                 onBack = { openedChatUser = null }
                             )
                         } else {
@@ -684,6 +776,7 @@ private fun HomeScreen(repository: AuthRepository) {
                                 onUserClick = { user ->
                                     openedChatUser = user
                                     openedChatMessages = emptyList()
+                                    openedPeerProfileUser = null
                                     chatHasMoreBefore = false
                                     chatOldestLoadedUnixMs = 0L
                                     isLoadingOlderMessages = false
@@ -700,7 +793,7 @@ private fun HomeScreen(repository: AuthRepository) {
                 }
             }
 
-            if (!isSearchOpen && openedChatUser == null) {
+            if (!isSearchOpen && openedChatUser == null && openedPeerProfileUser == null) {
                 BottomCapsule(
                     modifier = Modifier
                         .align(Alignment.BottomCenter)
@@ -710,6 +803,7 @@ private fun HomeScreen(repository: AuthRepository) {
                         selectedTab = it
                         if (it != HomeTab.CHATS) {
                             openedChatUser = null
+                            openedPeerProfileUser = null
                             isSearchOpen = false
                             searchQuery = ""
                         }
@@ -1028,6 +1122,7 @@ private fun ChatScreen(
     scrollToBottomSignal: Int,
     onSendMessage: (String) -> Unit,
     onLoadOlder: () -> Unit,
+    onOpenPeerProfile: (UserSearchModel) -> Unit,
     onBack: () -> Unit
 ) {
     var draftMessage by rememberSaveable(user.userId) { mutableStateOf("") }
@@ -1067,7 +1162,11 @@ private fun ChatScreen(
                 )
             }
             Spacer(modifier = Modifier.width(10.dp))
-            Column {
+            Column(
+                modifier = Modifier
+                    .weight(1f)
+                    .clickable { onOpenPeerProfile(user) }
+            ) {
                 Text(
                     text = user.displayName,
                     color = palette.primaryText,
@@ -1075,7 +1174,7 @@ private fun ChatScreen(
                     fontWeight = FontWeight.Medium
                 )
                 Text(
-                    text = "@${user.username}",
+                    text = formatPresence(user.isOnline, user.lastSeenAtUnixMs),
                     color = palette.secondaryText,
                     style = MaterialTheme.typography.bodySmall
                 )
@@ -1121,13 +1220,23 @@ private fun ChatScreen(
                                             color = palette.primaryText,
                                             style = MaterialTheme.typography.bodyMedium
                                         )
-                                        if (outgoing) {
-                                            Spacer(modifier = Modifier.height(2.dp))
+                                        Spacer(modifier = Modifier.height(2.dp))
+                                        Row(
+                                            verticalAlignment = Alignment.CenterVertically,
+                                            horizontalArrangement = Arrangement.spacedBy(4.dp)
+                                        ) {
                                             Text(
-                                                text = if (message.readByRecipientAtUnixMs > 0) "Прочитано" else "Отправлено",
+                                                text = formatMessageTime(message.createdAtUnixMs),
                                                 color = palette.secondaryText,
                                                 style = MaterialTheme.typography.labelSmall
                                             )
+                                            if (outgoing) {
+                                                Text(
+                                                    text = if (message.readByRecipientAtUnixMs > 0) "✓✓" else "✓",
+                                                    color = palette.secondaryText,
+                                                    style = MaterialTheme.typography.labelSmall
+                                                )
+                                            }
                                         }
                                     }
                                 }
@@ -1169,7 +1278,9 @@ private fun ChatScreen(
         Spacer(modifier = Modifier.height(8.dp))
 
         Row(
-            modifier = Modifier.fillMaxWidth(),
+            modifier = Modifier
+                .fillMaxWidth()
+                .imePadding(),
             verticalAlignment = Alignment.CenterVertically,
             horizontalArrangement = Arrangement.spacedBy(8.dp)
         ) {
@@ -1208,6 +1319,87 @@ private fun ChatScreen(
         }
     }
 }
+
+@Composable
+private fun PeerProfileScreen(
+    palette: HomePalette,
+    user: UserSearchModel,
+    onBack: () -> Unit
+) {
+    Column(
+        modifier = Modifier
+            .fillMaxSize()
+            .padding(top = 8.dp),
+        horizontalAlignment = Alignment.CenterHorizontally
+    ) {
+        Row(
+            modifier = Modifier
+                .fillMaxWidth()
+                .clip(RoundedCornerShape(14.dp))
+                .background(palette.panelBackground)
+                .padding(horizontal = 12.dp, vertical = 10.dp),
+            verticalAlignment = Alignment.CenterVertically
+        ) {
+            IconButton(
+                onClick = onBack,
+                modifier = Modifier
+                    .size(width = 44.dp, height = 30.dp)
+                    .clip(RoundedCornerShape(8.dp))
+                    .background(palette.chipBackground)
+            ) {
+                Icon(
+                    imageVector = Icons.Filled.ArrowBack,
+                    contentDescription = "Back",
+                    tint = palette.primaryText,
+                    modifier = Modifier.size(18.dp)
+                )
+            }
+            Spacer(modifier = Modifier.width(10.dp))
+            Text(
+                text = "Профиль",
+                color = palette.primaryText,
+                style = MaterialTheme.typography.titleMedium,
+                fontWeight = FontWeight.Medium
+            )
+        }
+
+        Spacer(modifier = Modifier.height(20.dp))
+
+        Box(
+            modifier = Modifier
+                .size(104.dp)
+                .clip(CircleShape)
+                .background(Color.Black)
+        )
+        Spacer(modifier = Modifier.height(16.dp))
+        Text(
+            text = user.displayName,
+            color = palette.primaryText,
+            style = MaterialTheme.typography.headlineSmall,
+            fontWeight = FontWeight.SemiBold
+        )
+        Spacer(modifier = Modifier.height(4.dp))
+        Text(
+            text = "@${user.username}",
+            color = palette.secondaryText,
+            style = MaterialTheme.typography.bodyMedium
+        )
+        Spacer(modifier = Modifier.height(4.dp))
+        Text(
+            text = formatPresence(user.isOnline, user.lastSeenAtUnixMs),
+            color = palette.secondaryText,
+            style = MaterialTheme.typography.bodySmall
+        )
+    }
+}
+
+private fun formatMessageTime(unixMs: Long): String {
+    if (unixMs <= 0L) return "--:--"
+    val date = java.util.Date(unixMs)
+    val formatter = java.text.SimpleDateFormat("HH:mm", java.util.Locale.getDefault())
+    return formatter.format(date)
+}
+
 @Composable
 private fun ProfileScreen(palette: HomePalette, repository: AuthRepository) {
     val scope = rememberCoroutineScope()
@@ -1215,6 +1407,7 @@ private fun ProfileScreen(palette: HomePalette, repository: AuthRepository) {
     var displayName by rememberSaveable { mutableStateOf("") }
     var username by rememberSaveable { mutableStateOf("") }
     var lastSeenAtUnixMs by rememberSaveable { mutableStateOf(0L) }
+    var isOnline by rememberSaveable { mutableStateOf(false) }
 
     var isLoading by rememberSaveable { mutableStateOf(true) }
     var errorMessage by rememberSaveable { mutableStateOf<String?>(null) }
@@ -1234,6 +1427,7 @@ private fun ProfileScreen(palette: HomePalette, repository: AuthRepository) {
                 displayName = result.profile.displayName
                 username = result.profile.username
                 lastSeenAtUnixMs = result.profile.lastSeenAtUnixMs
+                isOnline = result.profile.isOnline
                 draftUsername = username
                 draftDisplayName = displayName
                 errorMessage = null
@@ -1315,7 +1509,7 @@ private fun ProfileScreen(palette: HomePalette, repository: AuthRepository) {
         )
         Spacer(modifier = Modifier.height(2.dp))
         Text(
-            text = formatLastSeen(lastSeenAtUnixMs),
+            text = formatPresence(isOnline, lastSeenAtUnixMs),
             color = palette.secondaryText,
             style = MaterialTheme.typography.bodySmall
         )
@@ -1334,6 +1528,7 @@ private fun ProfileScreen(palette: HomePalette, repository: AuthRepository) {
                                 displayName = profile.displayName
                                 username = profile.username
                                 lastSeenAtUnixMs = profile.lastSeenAtUnixMs
+                                isOnline = profile.isOnline
                                 draftUsername = profile.username
                                 isEditing = false
                                 errorMessage = null
@@ -1448,6 +1643,7 @@ private fun ProfileScreen(palette: HomePalette, repository: AuthRepository) {
                                     displayName = profile.displayName
                                     username = profile.username
                                     lastSeenAtUnixMs = profile.lastSeenAtUnixMs
+                                    isOnline = profile.isOnline
                                     draftDisplayName = profile.displayName
                                     isNameDialogOpen = false
                                     errorMessage = null
@@ -1479,16 +1675,24 @@ private fun isValidUsername(username: String): Boolean {
     return username.length >= 5 && username.all { it.isLetterOrDigit() && it.code < 128 }
 }
 
-private fun formatLastSeen(lastSeenAtUnixMs: Long): String {
-    if (lastSeenAtUnixMs <= 0L) return "last seen recently"
+private fun formatPresence(isOnline: Boolean, lastSeenAtUnixMs: Long): String {
+    if (isOnline) {
+        return "online"
+    }
+
+    if (lastSeenAtUnixMs <= 0L) {
+        return "offline"
+    }
 
     val diffMinutes = ((System.currentTimeMillis() - lastSeenAtUnixMs) / 60000).coerceAtLeast(0)
-    return when {
-        diffMinutes < 1 -> "online now"
-        diffMinutes < 60 -> "last seen ${diffMinutes}m ago"
-        diffMinutes < 1440 -> "last seen ${diffMinutes / 60}h ago"
-        else -> "last seen ${diffMinutes / 1440}d ago"
+    val lastSeen = when {
+        diffMinutes < 1 -> "just now"
+        diffMinutes < 60 -> "${diffMinutes}m ago"
+        diffMinutes < 1440 -> "${diffMinutes / 60}h ago"
+        else -> "${diffMinutes / 1440}d ago"
     }
+
+    return "offline • last seen $lastSeen"
 }
 
 @Composable

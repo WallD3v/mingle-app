@@ -36,7 +36,8 @@ data class ServerMessage(
     @ProtoNumber(11) val messageSent: MessageSent? = null,
     @ProtoNumber(12) val subscribed: Subscribed? = null,
     @ProtoNumber(13) val messageReceived: MessageReceived? = null,
-    @ProtoNumber(14) val messageReadUpdate: MessageReadUpdate? = null
+    @ProtoNumber(14) val messageReadUpdate: MessageReadUpdate? = null,
+    @ProtoNumber(15) val presenceUpdate: PresenceUpdate? = null
 )
 
 @Serializable
@@ -124,7 +125,8 @@ data class ProfileData(
     @ProtoNumber(1) val userId: String,
     @ProtoNumber(2) val displayName: String,
     @ProtoNumber(3) val username: String,
-    @ProtoNumber(4) val lastSeenAtUnixMs: Long
+    @ProtoNumber(4) val lastSeenAtUnixMs: Long,
+    @ProtoNumber(5) val isOnline: Boolean = false
 )
 
 @Serializable
@@ -132,7 +134,8 @@ data class UserSearchResultItem(
     @ProtoNumber(1) val userId: String,
     @ProtoNumber(2) val displayName: String,
     @ProtoNumber(3) val username: String,
-    @ProtoNumber(4) val lastSeenAtUnixMs: Long
+    @ProtoNumber(4) val lastSeenAtUnixMs: Long,
+    @ProtoNumber(5) val isOnline: Boolean = false
 )
 
 @Serializable
@@ -145,7 +148,8 @@ data class UserPreview(
     @ProtoNumber(1) val userId: String,
     @ProtoNumber(2) val displayName: String,
     @ProtoNumber(3) val username: String,
-    @ProtoNumber(4) val lastSeenAtUnixMs: Long
+    @ProtoNumber(4) val lastSeenAtUnixMs: Long,
+    @ProtoNumber(5) val isOnline: Boolean = false
 )
 
 @Serializable
@@ -203,6 +207,13 @@ data class MessageReadUpdate(
     @ProtoNumber(1) val dialogId: String,
     @ProtoNumber(2) val readerUserId: String,
     @ProtoNumber(3) val readAtUnixMs: Long
+)
+
+@Serializable
+data class PresenceUpdate(
+    @ProtoNumber(1) val userId: String,
+    @ProtoNumber(2) val isOnline: Boolean,
+    @ProtoNumber(3) val lastSeenAtUnixMs: Long
 )
 
 const val PROTOCOL_VERSION = 1

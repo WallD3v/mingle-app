@@ -1,5 +1,6 @@
 using System.Net;
 using System.Net.Sockets;
+using Mingle.Server.Data;
 using Mingle.Server.Protocol;
 using Mingle.Server.Transport;
 
@@ -9,6 +10,7 @@ public sealed class TcpServerHostedService(
     IConfiguration configuration,
     TcpMessageProcessor messageProcessor,
     IRealtimeConnectionRegistry realtimeRegistry,
+    IUserRepository userRepository,
     ILogger<TcpServerHostedService> logger) : BackgroundService
 {
     private TcpListener? _listener;
@@ -93,7 +95,18 @@ public sealed class TcpServerHostedService(
         }
         finally
         {
-            realtimeRegistry.Unregister(connectionId);
+            var transition = realtimeRegistry.Unregister(connectionId);
+            if (transition.Success && transition.PresenceChanged && transition.UserId.HasValue)
+            {
+                await userRepository.TouchLastSeenAsync(transition.UserId.Value);
+
+                await realtimeRegistry.BroadcastPresenceAsync(
+                    transition.UserId.Value,
+                    isOnline: false,
+                    lastSeenAtUnixMs: DateTimeOffset.UtcNow.ToUnixTimeMilliseconds(),
+                    cancellationToken);
+            }
+
             client.Close();
             sendLock.Dispose();
         }

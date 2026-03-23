@@ -46,6 +46,7 @@ message ProfileData {
   string display_name = 2;
   string username = 3;
   int64 last_seen_at_unix_ms = 4;
+  bool is_online = 5;
 }
 
 message UserSearchRequest {
@@ -58,6 +59,7 @@ message UserSearchResultItem {
   string display_name = 2;
   string username = 3;
   int64 last_seen_at_unix_ms = 4;
+  bool is_online = 5;
 }
 
 message UserSearchResults {
@@ -86,6 +88,7 @@ message UserPreview {
   string display_name = 2;
   string username = 3;
   int64 last_seen_at_unix_ms = 4;
+  bool is_online = 5;
 }
 
 message DialogMessage {
@@ -141,6 +144,12 @@ message MessageReadUpdate {
   int64 read_at_unix_ms = 3;
 }
 
+message PresenceUpdate {
+  string user_id = 1;
+  bool is_online = 2;
+  int64 last_seen_at_unix_ms = 3;
+}
+
 message ClientMessage {
   uint32 protocol_version = 1;
   oneof payload {
@@ -174,5 +183,6 @@ message ServerMessage {
     Subscribed subscribed = 12;
     MessageReceived message_received = 13;
     MessageReadUpdate message_read_update = 14;
+    PresenceUpdate presence_update = 15;
   }
 }

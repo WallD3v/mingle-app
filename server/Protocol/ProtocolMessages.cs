@@ -36,6 +36,7 @@ public sealed class ServerMessage
     [ProtoMember(12)] public Subscribed? Subscribed { get; set; }
     [ProtoMember(13)] public MessageReceived? MessageReceived { get; set; }
     [ProtoMember(14)] public MessageReadUpdate? MessageReadUpdate { get; set; }
+    [ProtoMember(15)] public PresenceUpdate? PresenceUpdate { get; set; }
 }
 
 [ProtoContract]
@@ -103,6 +104,7 @@ public sealed class ProfileData
     [ProtoMember(2)] public string DisplayName { get; set; } = string.Empty;
     [ProtoMember(3)] public string Username { get; set; } = string.Empty;
     [ProtoMember(4)] public long LastSeenAtUnixMs { get; set; }
+    [ProtoMember(5)] public bool IsOnline { get; set; }
 }
 
 [ProtoContract]
@@ -119,6 +121,7 @@ public sealed class UserSearchResultItem
     [ProtoMember(2)] public string DisplayName { get; set; } = string.Empty;
     [ProtoMember(3)] public string Username { get; set; } = string.Empty;
     [ProtoMember(4)] public long LastSeenAtUnixMs { get; set; }
+    [ProtoMember(5)] public bool IsOnline { get; set; }
 }
 
 [ProtoContract]
@@ -157,6 +160,7 @@ public sealed class UserPreview
     [ProtoMember(2)] public string DisplayName { get; set; } = string.Empty;
     [ProtoMember(3)] public string Username { get; set; } = string.Empty;
     [ProtoMember(4)] public long LastSeenAtUnixMs { get; set; }
+    [ProtoMember(5)] public bool IsOnline { get; set; }
 }
 
 [ProtoContract]
@@ -228,4 +232,12 @@ public sealed class MessageReadUpdate
     [ProtoMember(1)] public string DialogId { get; set; } = string.Empty;
     [ProtoMember(2)] public string ReaderUserId { get; set; } = string.Empty;
     [ProtoMember(3)] public long ReadAtUnixMs { get; set; }
+}
+
+[ProtoContract]
+public sealed class PresenceUpdate
+{
+    [ProtoMember(1)] public string UserId { get; set; } = string.Empty;
+    [ProtoMember(2)] public bool IsOnline { get; set; }
+    [ProtoMember(3)] public long LastSeenAtUnixMs { get; set; }
 }

@@ -30,6 +30,8 @@ class TcpAuthClient(
     private var messageListener: ((MessageReceived) -> Unit)? = null
     @Volatile
     private var messageReadListener: ((MessageReadUpdate) -> Unit)? = null
+    @Volatile
+    private var presenceListener: ((PresenceUpdate) -> Unit)? = null
 
     suspend fun register(mnemonic: String): ServerMessage {
         return send(ClientMessage(register = AuthRequest(mnemonic = mnemonic)))
@@ -119,6 +121,10 @@ class TcpAuthClient(
         messageReadListener = listener
     }
 
+    fun setPresenceListener(listener: ((PresenceUpdate) -> Unit)?) {
+        presenceListener = listener
+    }
+
     suspend fun close() {
         mutex.withLock {
             readJob?.cancel()
@@ -186,6 +192,8 @@ class TcpAuthClient(
                         messageListener?.invoke(incoming)
                     } else if (message.messageReadUpdate != null) {
                         messageReadListener?.invoke(message.messageReadUpdate)
+                    } else if (message.presenceUpdate != null) {
+                        presenceListener?.invoke(message.presenceUpdate)
                     } else {
                         responseChannel.send(message)
                     }

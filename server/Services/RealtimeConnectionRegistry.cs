@@ -6,11 +6,15 @@ namespace Mingle.Server.Services;
 public interface IRealtimeConnectionRegistry
 {
     void Register(TcpClientConnection connection);
-    void Unregister(Guid connectionId);
-    bool Subscribe(Guid connectionId, Guid userId);
+    PresenceTransition Unregister(Guid connectionId);
+    PresenceTransition Subscribe(Guid connectionId, Guid userId);
+    bool IsUserOnline(Guid userId);
+    Task BroadcastPresenceAsync(Guid changedUserId, bool isOnline, long lastSeenAtUnixMs, CancellationToken cancellationToken);
     Task PushMessageReceivedAsync(Guid recipientUserId, MessageReceived payload, CancellationToken cancellationToken);
     Task PushToUserAsync(Guid userId, ServerMessage message, CancellationToken cancellationToken);
 }
+
+public readonly record struct PresenceTransition(bool Success, Guid? UserId, bool PresenceChanged);
 
 public sealed class TcpClientConnection(
     Guid connectionId,
@@ -35,20 +39,30 @@ public sealed class RealtimeConnectionRegistry : IRealtimeConnectionRegistry
         _connections[connection.ConnectionId] = connection;
     }
 
-    public void Unregister(Guid connectionId)
+    public PresenceTransition Unregister(Guid connectionId)
     {
-        if (_connections.TryRemove(connectionId, out var connection) && connection.UserId.HasValue)
+        if (!_connections.TryRemove(connectionId, out var connection))
         {
-            RemoveUserConnection(connection.UserId.Value, connectionId);
+            return new PresenceTransition(false, null, false);
         }
+
+        if (!connection.UserId.HasValue)
+        {
+            return new PresenceTransition(true, null, false);
+        }
+
+        var becameOffline = RemoveUserConnection(connection.UserId.Value, connectionId);
+        return new PresenceTransition(true, connection.UserId.Value, becameOffline);
     }
 
-    public bool Subscribe(Guid connectionId, Guid userId)
+    public PresenceTransition Subscribe(Guid connectionId, Guid userId)
     {
         if (!_connections.TryGetValue(connectionId, out var connection))
         {
-            return false;
+            return new PresenceTransition(false, null, false);
         }
+
+        var wasOnline = IsUserOnline(userId);
 
         if (connection.UserId.HasValue)
         {
@@ -58,7 +72,31 @@ public sealed class RealtimeConnectionRegistry : IRealtimeConnectionRegistry
         connection.UserId = userId;
         var set = _userConnections.GetOrAdd(userId, _ => new ConcurrentDictionary<Guid, byte>());
         set[connectionId] = 0;
-        return true;
+        return new PresenceTransition(true, userId, !wasOnline);
+    }
+
+    public bool IsUserOnline(Guid userId)
+    {
+        return _userConnections.TryGetValue(userId, out var connections) && !connections.IsEmpty;
+    }
+
+    public async Task BroadcastPresenceAsync(Guid changedUserId, bool isOnline, long lastSeenAtUnixMs, CancellationToken cancellationToken)
+    {
+        var message = new ServerMessage
+        {
+            ProtocolVersion = TcpMessageProcessor.ProtocolVersion,
+            PresenceUpdate = new PresenceUpdate
+            {
+                UserId = changedUserId.ToString(),
+                IsOnline = isOnline,
+                LastSeenAtUnixMs = lastSeenAtUnixMs
+            }
+        };
+
+        foreach (var onlineUserId in _userConnections.Keys.Where(x => x != changedUserId))
+        {
+            await PushToUserAsync(onlineUserId, message, cancellationToken);
+        }
     }
 
     public async Task PushMessageReceivedAsync(Guid recipientUserId, MessageReceived payload, CancellationToken cancellationToken)
@@ -102,7 +140,7 @@ public sealed class RealtimeConnectionRegistry : IRealtimeConnectionRegistry
         }
     }
 
-    private void RemoveUserConnection(Guid userId, Guid connectionId)
+    private bool RemoveUserConnection(Guid userId, Guid connectionId)
     {
         if (_userConnections.TryGetValue(userId, out var set))
         {
@@ -110,7 +148,10 @@ public sealed class RealtimeConnectionRegistry : IRealtimeConnectionRegistry
             if (set.IsEmpty)
             {
                 _userConnections.TryRemove(userId, out _);
+                return true;
             }
         }
+
+        return false;
     }
 }

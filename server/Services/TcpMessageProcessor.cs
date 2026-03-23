@@ -291,9 +291,24 @@ public sealed class TcpMessageProcessor(
                     return Error("UNAUTHORIZED", "Token is invalid.");
                 }
 
-                if (!connectionId.HasValue || !realtimeRegistry.Subscribe(connectionId.Value, userId))
+                if (!connectionId.HasValue)
                 {
                     return Error("SERVER_ERROR", "Connection subscribe failed.");
+                }
+
+                var subscription = realtimeRegistry.Subscribe(connectionId.Value, userId);
+                if (!subscription.Success)
+                {
+                    return Error("SERVER_ERROR", "Connection subscribe failed.");
+                }
+
+                if (subscription.PresenceChanged)
+                {
+                    await realtimeRegistry.BroadcastPresenceAsync(
+                        userId,
+                        isOnline: true,
+                        lastSeenAtUnixMs: DateTimeOffset.UtcNow.ToUnixTimeMilliseconds(),
+                        cancellationToken);
                 }
 
                 return new ServerMessage
@@ -353,29 +368,31 @@ public sealed class TcpMessageProcessor(
         return username.Length >= 5 && username.All(ch => ch <= 127 && char.IsLetterOrDigit(ch));
     }
 
-    private static ProfileData ToProfileData(UserRecord profile)
+    private ProfileData ToProfileData(UserRecord profile)
     {
         return new ProfileData
         {
             UserId = profile.Id.ToString(),
             DisplayName = profile.DisplayName,
             Username = profile.Username,
-            LastSeenAtUnixMs = new DateTimeOffset(profile.LastSeenAt).ToUnixTimeMilliseconds()
+            LastSeenAtUnixMs = new DateTimeOffset(profile.LastSeenAt).ToUnixTimeMilliseconds(),
+            IsOnline = realtimeRegistry.IsUserOnline(profile.Id)
         };
     }
 
-    private static UserSearchResultItem ToSearchItem(UserRecord user)
+    private UserSearchResultItem ToSearchItem(UserRecord user)
     {
         return new UserSearchResultItem
         {
             UserId = user.Id.ToString(),
             DisplayName = user.DisplayName,
             Username = user.Username,
-            LastSeenAtUnixMs = new DateTimeOffset(user.LastSeenAt).ToUnixTimeMilliseconds()
+            LastSeenAtUnixMs = new DateTimeOffset(user.LastSeenAt).ToUnixTimeMilliseconds(),
+            IsOnline = realtimeRegistry.IsUserOnline(user.Id)
         };
     }
 
-    private static DialogListItem ToDialogListItem(DialogListItemRecord item)
+    private DialogListItem ToDialogListItem(DialogListItemRecord item)
     {
         return new DialogListItem
         {
@@ -385,7 +402,8 @@ public sealed class TcpMessageProcessor(
                 UserId = item.PeerUserId.ToString(),
                 DisplayName = item.PeerDisplayName,
                 Username = item.PeerUsername,
-                LastSeenAtUnixMs = new DateTimeOffset(item.PeerLastSeenAt).ToUnixTimeMilliseconds()
+                LastSeenAtUnixMs = new DateTimeOffset(item.PeerLastSeenAt).ToUnixTimeMilliseconds(),
+                IsOnline = realtimeRegistry.IsUserOnline(item.PeerUserId)
             },
             LastMessageText = item.LastMessageText,
             LastMessageAtUnixMs = new DateTimeOffset(item.LastMessageAt).ToUnixTimeMilliseconds(),
@@ -393,7 +411,7 @@ public sealed class TcpMessageProcessor(
         };
     }
 
-    private static DialogData ToDialogData(DialogThreadRecord thread)
+    private DialogData ToDialogData(DialogThreadRecord thread)
     {
         return new DialogData
         {
@@ -420,25 +438,27 @@ public sealed class TcpMessageProcessor(
         };
     }
 
-    private static UserPreview ToUserPreview(DialogThreadRecord thread)
+    private UserPreview ToUserPreview(DialogThreadRecord thread)
     {
         return new UserPreview
         {
             UserId = thread.PeerUserId.ToString(),
             DisplayName = thread.PeerDisplayName,
             Username = thread.PeerUsername,
-            LastSeenAtUnixMs = new DateTimeOffset(thread.PeerLastSeenAt).ToUnixTimeMilliseconds()
+            LastSeenAtUnixMs = new DateTimeOffset(thread.PeerLastSeenAt).ToUnixTimeMilliseconds(),
+            IsOnline = realtimeRegistry.IsUserOnline(thread.PeerUserId)
         };
     }
 
-    private static UserPreview ToUserPreview(UserRecord user)
+    private UserPreview ToUserPreview(UserRecord user)
     {
         return new UserPreview
         {
             UserId = user.Id.ToString(),
             DisplayName = user.DisplayName,
             Username = user.Username,
-            LastSeenAtUnixMs = new DateTimeOffset(user.LastSeenAt).ToUnixTimeMilliseconds()
+            LastSeenAtUnixMs = new DateTimeOffset(user.LastSeenAt).ToUnixTimeMilliseconds(),
+            IsOnline = realtimeRegistry.IsUserOnline(user.Id)
         };
     }
 }
